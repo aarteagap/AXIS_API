@@ -1,0 +1,308 @@
+import pandas as pd, numpy as np, json, re
+
+
+def build_dashboard_data(xlsm_path):
+    import pandas as pd, numpy as np, json, re
+    df = pd.read_excel(xlsm_path, sheet_name='HORIZON_FORECAST', engine='openpyxl')
+    df = df[~df['Status'].isin(['Maquinaria', 'Traslado'])].copy()
+    df['FCL'] = pd.to_numeric(df['FCL'], errors='coerce').fillna(0)
+    df['Pack Plan'] = pd.to_numeric(df['Pack Plan'], errors='coerce')
+    df = df[df['Pack Plan'].notna()].copy()
+    df['Pack Plan'] = df['Pack Plan'].astype(int)
+
+    def dstr(x):
+        if pd.isna(x): return ""
+        return pd.Timestamp(x).strftime('%Y-%m-%d')
+
+    def tstr(x):
+        if pd.isna(x): return ""
+        if hasattr(x, 'strftime'): return x.strftime('%H:%M')
+        try:
+            total = int(x.total_seconds())
+            return f"{total//3600:02d}:{(total%3600)//60:02d}"
+        except Exception:
+            return ""
+
+    conf = df[df['Status'] == 'Confirmado'].copy()
+    proy = df[df['Status'] == 'Proyectado'].copy()
+    canc = df[df['Status'] == 'Cancelado'].copy()
+
+    # ══════════════════════════ SENASA ══════════════════════════
+    sen = conf.copy()
+    SENASA = []
+    for _, r in sen.iterrows():
+        SENASA.append({
+            "pack_plan": int(r['Pack Plan']),
+            "packing": r['Packing'] if pd.notna(r['Packing']) else "",
+            "mode": r['Mode'] if pd.notna(r['Mode']) else "",
+            "pod": r['POD'] if pd.notna(r['POD']) else "",
+            "senasa_att": r['SENASA Attention'] if pd.notna(r['SENASA Attention']) else "",
+            "inspector": r['Assigned Inspector'] if pd.notna(r['Assigned Inspector']) else "",
+            "insp_date": dstr(r['Inspection Date']),
+            "insp_time": tstr(r['Inspection Time']),
+            "fcl": round(float(r['FCL']), 2),
+            "po": str(r['PO']) if pd.notna(r['PO']) else "",
+            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+        })
+
+    # ══════════════════════════ WROWS (weekly export program) ══════════════════════════
+    wr = df[df['Status'] != 'Cancelado'].copy()
+    WROWS = []
+    for _, r in wr.iterrows():
+        WROWS.append({
+            "pack_plan": int(r['Pack Plan']),
+            "packing": r['Packing'] if pd.notna(r['Packing']) else "",
+            "mode": r['Mode'] if pd.notna(r['Mode']) else "",
+            "shipper": r['Shipper'] if pd.notna(r['Shipper']) else "",
+            "pod": r['POD'] if pd.notna(r['POD']) else "",
+            "date": dstr(r['Loading Date']),
+            "fcl": round(float(r['FCL']), 2),
+        })
+
+    # ══════════════════════════ AIR (aereo transport detail, confirmado) ══════════════════════════
+    air = conf[conf['Mode'] == 'Aéreo'].copy()
+    AIR = []
+    for _, r in air.iterrows():
+        wk = r['Pack Plan']
+        AIR.append({
+            "wk": f"S{int(wk)}",
+            "pack_plan": int(wk),
+            "packing": r['Packing'] if pd.notna(r['Packing']) else "",
+            "po": str(r['PO']) if pd.notna(r['PO']) else "",
+            "shipper": r['Shipper'] if pd.notna(r['Shipper']) else "",
+            "instruction": r['Instruction'] if pd.notna(r['Instruction']) else "",
+            "log_op": r['Logistics Operator'] if pd.notna(r['Logistics Operator']) else "",
+            "dest": r['POD'] if pd.notna(r['POD']) else "",
+            "dispatch": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "postime": tstr(r['Positioning Time']),
+            "gatein": r['Gate-In Storage'] if pd.notna(r['Gate-In Storage']) else "",
+            "pallets": int(r['Pallets']) if pd.notna(r['Pallets']) else 0,
+            "fcl": round(float(r['FCL']), 2) if pd.notna(r['FCL']) else 0.0,
+            "awb": str(r['Booking|AWB|CRT']) if pd.notna(r['Booking|AWB|CRT']) else "",
+            "file": str(r['File']) if pd.notna(r['File']) else "",
+            "line": r['Line'] if pd.notna(r['Line']) else "",
+            "transp_op": r['Transport Operator'] if pd.notna(r['Transport Operator']) else "",
+            "basc": r['Journey Status BASC'] if pd.notna(r['Journey Status BASC']) else "",
+            "dam": str(r['DAM']) if pd.notna(r['DAM']) else "",
+            "driver": r['Driver'] if pd.notna(r['Driver']) else "",
+            "license": r['License'] if pd.notna(r['License']) else "",
+            "tractor": r['Tractor'] if pd.notna(r['Tractor']) else "",
+            "trailer": r['Trailer'] if pd.notna(r['Trailer']) else "",
+            "phone": str(r['Driver Phone Number']) if pd.notna(r['Driver Phone Number']) else "",
+        })
+
+    # ══════════════════════════ AIRLINES (PO diferenciados por línea, mode Aereo) ══════════════════════════
+    air_po = air[air['PO'].notna()]
+    al = air_po.groupby('Line')['PO'].nunique().sort_values(ascending=False)
+    palette = ["#E8A33D","#2E8FB0","#163B54","#7A6FD0","#C0392B","#2E8B57","#C77D1E","#9CA3AF","#6B7280","#1C2940"]
+    AIRLINES = [{"name": str(k), "count": int(v), "color": palette[i % len(palette)]} for i, (k, v) in enumerate(al.items())]
+
+    # ══════════════════════════ FWKS / WKL ══════════════════════════
+    # 6W field encodes: [XX][YY][SUFFIX]. SUFFIX: SOP/PRE = base projection (orange line),
+    # ADD/EXPO = safety/additional containers (small red/green tag). The record is bucketed
+    # under its OWN Pack Plan week (not the YY target-week digits) — verified against source pivots.
+    def parse_6w(v):
+        if pd.isna(v): return None
+        m = re.match(r'(\d{2})(\d{2})([A-Z]+)', str(v))
+        if not m: return None
+        return int(m.group(1)), int(m.group(2)), m.group(3)
+
+    df['_6w_parsed'] = df['6W'].apply(parse_6w)
+    df['_6w_suf'] = df['_6w_parsed'].apply(lambda t: t[2] if t else None)
+
+    weeks = sorted(df['Pack Plan'].dropna().unique().tolist())
+    weeks = [int(w) for w in weeks]
+
+    df['Pallets'] = pd.to_numeric(df['Pallets'], errors='coerce').fillna(0)
+
+    FWKS, WKL = [], []
+    for wk in weeks:
+        dwk = df[df['Pack Plan'] == wk]
+        c = dwk[dwk['Status'] == 'Confirmado']['FCL'].sum()
+        cp = dwk[dwk['Status'] == 'Confirmado']['Pallets'].sum()
+
+        p = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['FCL'].sum()
+        a = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['FCL'].sum()
+        pp = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['Pallets'].sum()
+        pa = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['Pallets'].sum()
+
+        FWKS.append({"wk": wk, "label": f"S{wk}", "fcl_conf": round(float(c), 1),
+                     "fcl_proj": round(float(p), 1), "fcl_addon": round(float(a), 1),
+                     "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1)})
+
+        cm = dwk[(dwk['Status']=='Confirmado') & (dwk['Mode']=='Marítimo')]['FCL'].sum()
+        ca = dwk[(dwk['Status']=='Confirmado') & (dwk['Mode']=='Aéreo')]['FCL'].sum()
+        ct = dwk[(dwk['Status']=='Confirmado') & (dwk['Mode']=='Terrestre')]['FCL'].sum()
+        WKL.append({"wk": wk, "label": f"S{wk}", "conf_mar": round(float(cm),1), "conf_aer": round(float(ca),1),
+                    "conf_ter": round(float(ct),1), "tot_conf": round(float(cm+ca+ct),1), "tot_proy": round(float(p+a),1)})
+
+    # ══════════════════════════ KPI ══════════════════════════
+    total_recs = len(df)
+    n_conf, n_proy, n_canc = len(conf), len(proy), len(canc)
+    fcl_conf_total = conf['FCL'].sum()
+    share_mar = conf[conf['Mode']=='Marítimo']['FCL'].sum() / fcl_conf_total * 100 if fcl_conf_total else 0
+    share_aer = conf[conf['Mode']=='Aéreo']['FCL'].sum() / fcl_conf_total * 100 if fcl_conf_total else 0
+    cob_dam = conf['DAM'].notna().sum() / n_conf * 100 if n_conf else 0
+    KPI = {
+        "tasa_conf": round(n_conf/total_recs*100, 1),
+        "tasa_canc": round(n_canc/total_recs*100, 1),
+        "share_mar": round(share_mar, 1),
+        "share_aer": round(share_aer, 1),
+        "cob_dam": round(cob_dam, 1),
+        "total_recs": total_recs, "confirmados": n_conf, "proyectados": n_proy, "cancelados": n_canc,
+    }
+
+    # ══════════════════════════ EX (fcl + DAM coverage) ══════════════════════════
+    fcl_aereo = conf[conf['Mode']=='Aéreo']['FCL'].sum()
+    fcl_maritimo = conf[conf['Mode']=='Marítimo']['FCL'].sum()
+    fcl_terrestre = conf[conf['Mode']=='Terrestre']['FCL'].sum()
+    dam_unique = conf['DAM'].dropna().nunique()
+    dam_missing = conf['DAM'].isna().sum()
+    dam_by_mode = []
+    for m in ['Aéreo','Marítimo','Terrestre']:
+        sub = conf[conf['Mode']==m]
+        w = sub['DAM'].notna().sum(); wo = sub['DAM'].isna().sum(); tot = len(sub)
+        dam_by_mode.append({"mode": m, "dam_with": int(w), "dam_without": int(wo), "total": int(tot),
+                             "pct": round(w/tot*100,1) if tot else 0.0})
+    dam_by_pp = []
+    for wk in weeks:
+        sub = conf[conf['Pack Plan']==wk]
+        if len(sub)==0: continue
+        du = sub['DAM'].dropna().nunique(); sd = sub['DAM'].isna().sum()
+        dam_by_pp.append({"label": f"S{int(wk)}", "dam_unicas": int(du), "sin_dam": int(sd), "total": int(du+sd)})
+    EX = {
+        "total_fcl": round(float(fcl_conf_total),1), "fcl_aereo": round(float(fcl_aereo),1),
+        "fcl_maritimo": round(float(fcl_maritimo),1), "fcl_terrestre": round(float(fcl_terrestre),1),
+        "dam_unique": int(dam_unique), "dam_missing": int(dam_missing),
+        "dam_by_mode": dam_by_mode, "dam_by_pp": dam_by_pp,
+    }
+
+    # ══════════════════════════ DEST (top 10 destinos confirmado) ══════════════════════════
+    dst = conf.groupby('POD')['FCL'].sum().sort_values(ascending=False).head(10)
+    DEST = [{"port": str(k), "fcl": round(float(v),1)} for k, v in dst.items()]
+
+    # ══════════════════════════ LINEAS ══════════════════════════
+    lin = conf.groupby('Line')['FCL'].sum().sort_values(ascending=False).head(8)
+    LINEAS = [{"line": str(k), "fcl": round(float(v),1)} for k, v in lin.items()]
+
+    # ══════════════════════════ PMI_PORTS (Gate-Out Port = origen Peru) ══════════════════════════
+    PMI_PORTS = []
+    colors = {"Lima":"#E8A33D","Callao":"#2E8FB0","Chancay":"#163B54","Paita":"#7A6FD0"}
+    for port in ["Lima","Callao","Chancay","Paita"]:
+        sub = df[df['Gate-Out Port']==port]
+        if len(sub)==0: continue
+        c = (sub['Status']=='Confirmado').sum(); p = (sub['Status']=='Proyectado').sum(); k = (sub['Status']=='Cancelado').sum()
+        tot = len(sub)
+        cumpl = round(c/tot*100,1) if tot else 0.0
+        fcl = sub[sub['Status']=='Confirmado']['FCL'].sum()
+        modes = sub['Mode'].value_counts()
+        mode = modes.idxmax() if len(modes) else ""
+        PMI_PORTS.append({"port": port, "conf": int(c), "proy": int(p), "canc": int(k), "total": int(tot),
+                           "cumpl": cumpl, "fcl": round(float(fcl),1), "mode": mode, "color": colors.get(port,"#888"),
+                           "delta_conf": 0, "delta_cumpl": 0.0})
+
+    # ══════════════════════════════════════════════════════════════
+    # FWKS_MODE — same as FWKS but split by transport Mode, for the 3 extra forecast charts
+    # ══════════════════════════════════════════════════════════════
+    FWKS_MODE = {}
+    for mode in ['Aéreo', 'Marítimo', 'Terrestre']:
+        dmode = df[df['Mode'] == mode]
+        rows = []
+        for wk in weeks:
+            dwk = dmode[dmode['Pack Plan'] == wk]
+            c = dwk[dwk['Status'] == 'Confirmado']['FCL'].sum()
+            cp = dwk[dwk['Status'] == 'Confirmado']['Pallets'].sum()
+            p = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['FCL'].sum()
+            a = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['FCL'].sum()
+            pp = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['Pallets'].sum()
+            pa = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['Pallets'].sum()
+            rows.append({"wk": wk, "label": f"S{wk}", "fcl_conf": round(float(c), 1),
+                         "fcl_proj": round(float(p), 1), "fcl_addon": round(float(a), 1),
+                         "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1)})
+        FWKS_MODE[mode] = rows
+
+    # ══════════════════════════════════════════════════════════════
+    # EMBARQUES — "Control de Embarques" (PMI tab), Status=Confirmado only
+    # ══════════════════════════════════════════════════════════════
+    def tstr2(x):
+        if pd.isna(x): return ""
+        if hasattr(x, 'strftime'): return x.strftime('%H:%M')
+        try:
+            total = int(x.total_seconds())
+            return f"{total//3600:02d}:{(total%3600)//60:02d}"
+        except Exception:
+            return ""
+
+    emb = conf.copy()
+    EMBARQUES = []
+    for _, r in emb.iterrows():
+        EMBARQUES.append({
+            "round": r['Dispatch Round'] if pd.notna(r['Dispatch Round']) else "(sin ronda)",
+            "pack_plan": int(r['Pack Plan']),
+            "load_date": dstr(r['Loading Date']),
+            "load_time": tstr2(r['Loading Time']),
+            "pack_est": (r['Packing Stage Estimated Arrival Time'].strftime('%d/%m/%Y %H:%M') if hasattr(r['Packing Stage Estimated Arrival Time'], 'strftime') else str(r['Packing Stage Estimated Arrival Time'])) if pd.notna(r['Packing Stage Estimated Arrival Time']) else "",
+            "basc": r['Journey Status BASC'] if pd.notna(r['Journey Status BASC']) else "",
+            "load_status": r['Packing Stage Load Status'] if pd.notna(r['Packing Stage Load Status']) else "",
+            "instruction": r['Instruction'] if pd.notna(r['Instruction']) else "",
+            "po": str(r['PO']) if pd.notna(r['PO']) else "",
+            "line": r['Line'] if pd.notna(r['Line']) else "",
+            "log_op": r['Logistics Operator'] if pd.notna(r['Logistics Operator']) else "",
+            "transp_op": r['Transport Operator'] if pd.notna(r['Transport Operator']) else "",
+            "booking": str(r['Booking|AWB|CRT']) if pd.notna(r['Booking|AWB|CRT']) else "",
+            "container": str(r['Container']) if pd.notna(r['Container']) else "",
+            "pod": r['POD'] if pd.notna(r['POD']) else "",
+            "packing": r['Packing'] if pd.notna(r['Packing']) else "",
+            "gatein": r['Gate-In Storage'] if pd.notna(r['Gate-In Storage']) else "",
+            "postime": tstr2(r['Positioning Time']),
+            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "mode": r['Mode'] if pd.notna(r['Mode']) else "",
+            "dam": str(r['DAM']) if pd.notna(r['DAM']) else "",
+            "fcl": round(float(r['FCL']), 2) if pd.notna(r['FCL']) else 0.0,
+            "retiro_cita": bool(pd.notna(r['Gate-Out Stage Appointment'])),
+        })
+
+    # ══════════════════════════════════════════════════════════════
+    # TR_PROGRAM — "Programa de Técnicos Reefer" (PMI tab), Status=Confirmado
+    # ══════════════════════════════════════════════════════════════
+    tr = conf[conf['Assigned T.R.'].notna()].copy()
+    TR_PROGRAM = []
+    for _, r in tr.iterrows():
+        TR_PROGRAM.append({
+            "packing": r['Packing'] if pd.notna(r['Packing']) else "",
+            "pack_plan": int(r['Pack Plan']),
+            "mode": r['Mode'] if pd.notna(r['Mode']) else "",
+            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "log_op": r['Logistics Operator'] if pd.notna(r['Logistics Operator']) else "",
+            "senasa_att": r['SENASA Attention'] if pd.notna(r['SENASA Attention']) else "",
+            "line": r['Line'] if pd.notna(r['Line']) else "",
+            "insp_time": tstr2(r['Inspection Time']),
+            "tr_time": tstr2(r['T.R. Time']),
+            "assigned_tr": r['Assigned T.R.'] if pd.notna(r['Assigned T.R.']) else "",
+            "booking": str(r['Booking|AWB|CRT']) if pd.notna(r['Booking|AWB|CRT']) else "",
+            "inspector": r['Assigned Inspector'] if pd.notna(r['Assigned Inspector']) else "",
+        })
+
+    # ══════════════════════════ PORTS_RAW (row-level, for dynamic Status/Pack Plan filters) ══════════════════════════
+    # NOTE: uses POL (Port of Loading), not Gate-Out Port — POL has much better fill rate and is the
+    # field that correctly represents the origin gateway for BOTH Aéreo (airport) and Marítimo (seaport)
+    # shipments alike; Gate-Out Port is populated almost exclusively for Marítimo.
+    PORTS_RAW = []
+    for _, r in df.iterrows():
+        if pd.isna(r['Status']):
+            continue
+        port = r['POL'] if pd.notna(r['POL']) else ""
+        PORTS_RAW.append({
+            "port": port,
+            "status": r['Status'],
+            "pack_plan": int(r['Pack Plan']),
+            "fcl": round(float(r['FCL']), 2),
+            "mode": r['Mode'] if pd.notna(r['Mode']) else "",
+            "po": str(r['PO']) if pd.notna(r['PO']) else "",
+        })
+
+    out = dict(SENASA=SENASA, WROWS=WROWS, AIR=AIR, AIRLINES=AIRLINES, FWKS=FWKS, WKL=WKL,
+               KPI=KPI, EX=EX, DEST=DEST, LINEAS=LINEAS, PMI_PORTS=PMI_PORTS, FWKS_MODE=FWKS_MODE,
+               EMBARQUES=EMBARQUES, TR_PROGRAM=TR_PROGRAM, PORTS_RAW=PORTS_RAW)
+
+    return out
