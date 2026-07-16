@@ -1,5 +1,6 @@
 import os
 import tempfile
+import base64
 from flask import Flask, request, jsonify
 from etl_logic import build_dashboard_data
 
@@ -21,22 +22,32 @@ def convert():
     if request.headers.get("X-API-Key") != API_KEY:
         return jsonify({"error": "unauthorized"}), 401
 
-    if "file" not in request.files:
-        return jsonify({"error": "no file uploaded, expected multipart field 'file'"}), 400
-
-    f = request.files["file"]
-
-    with tempfile.NamedTemporaryFile(suffix=".xlsm", delete=False) as tmp:
-        f.save(tmp.name)
-        tmp_path = tmp.name
-
+    tmp_path = None
     try:
+        if "file" in request.files:
+            # multipart/form-data upload
+            f = request.files["file"]
+            with tempfile.NamedTemporaryFile(suffix=".xlsm", delete=False) as tmp:
+                f.save(tmp.name)
+                tmp_path = tmp.name
+        else:
+            # JSON body: { "file_base64": "..." }  (used by Power Automate)
+            payload = request.get_json(silent=True) or {}
+            b64 = payload.get("file_base64")
+            if not b64:
+                return jsonify({"error": "no file uploaded. Send multipart field 'file' or JSON {file_base64}"}), 400
+            raw = base64.b64decode(b64)
+            with tempfile.NamedTemporaryFile(suffix=".xlsm", delete=False) as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+
         data = build_dashboard_data(tmp_path)
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        os.unlink(tmp_path)
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 if __name__ == "__main__":
