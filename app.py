@@ -2,11 +2,26 @@ import os
 import tempfile
 import base64
 import json
+from datetime import datetime, timezone
 import requests
 from flask import Flask, request, jsonify
-from etl_logic import build_dashboard_data
 
 app = Flask(__name__)
+
+# Enable CORS so the dashboard (hosted on GitHub Pages, a different origin) can call this API.
+@app.after_request
+def add_cors_headers(resp):
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-API-Key'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    return resp
+
+@app.route("/publish", methods=["OPTIONS"])
+@app.route("/convert", methods=["OPTIONS"])
+def cors_preflight():
+    return ("", 204)
+
+from etl_logic import build_dashboard_data
 
 # Shared secret so random people on the internet can't hit this endpoint.
 # Set this as an environment variable in Render (see deployment instructions).
@@ -28,7 +43,7 @@ def github_headers():
     }
 
 
-def push_to_github(data_dict):
+def push_to_github(data_dict, updater_name=""):
     """Fetch the current SHA of data.json, then PUT the new content. Returns (ok, info)."""
     if not GITHUB_TOKEN:
         return False, "GITHUB_TOKEN is not configured on the server."
@@ -42,12 +57,16 @@ def push_to_github(data_dict):
     sha = r.json().get("sha")
 
     # 2. PUT the new content
+    who = updater_name.strip() if updater_name and updater_name.strip() else "Usuario sin identificar"
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     content_b64 = base64.b64encode(json.dumps(data_dict, ensure_ascii=False).encode("utf-8")).decode("ascii")
     payload = {
-        "message": "Actualización automática desde Excel (vía dashboard)",
+        "message": f"Actualización de datos por {who} — {timestamp}",
         "content": content_b64,
         "sha": sha,
         "branch": GITHUB_BRANCH,
+        "committer": {"name": who, "email": "athena-dashboard@no-reply.local"},
+        "author": {"name": who, "email": "athena-dashboard@no-reply.local"},
     }
     r2 = requests.put(api_url, headers=github_headers(), json=payload)
     if r2.status_code not in (200, 201):
@@ -103,6 +122,8 @@ def publish():
     if request.headers.get("X-API-Key") != API_KEY:
         return jsonify({"error": "unauthorized"}), 401
 
+    updater_name = request.form.get("updater_name") or (request.get_json(silent=True) or {}).get("updater_name", "")
+
     tmp_path = _load_excel_from_request()
     if not tmp_path:
         return jsonify({"error": "no file uploaded. Send multipart field 'file' or JSON {file_base64}"}), 400
@@ -115,11 +136,11 @@ def publish():
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-    ok, info = push_to_github(data)
+    ok, info = push_to_github(data, updater_name)
     if not ok:
         return jsonify({"error": info}), 502
 
-    return jsonify({"status": "ok", "commit_sha": info, "rows": {k: len(v) if isinstance(v, list) else None for k, v in data.items()}})
+    return jsonify({"status": "ok", "commit_sha": info, "updated_by": updater_name, "rows": {k: len(v) if isinstance(v, list) else None for k, v in data.items()}})
 
 
 if __name__ == "__main__":
