@@ -122,6 +122,8 @@ def build_dashboard_data(xlsm_path):
         m_wk = df['Pack Plan'] == wk
         c = dwk[dwk['Status'] == 'Confirmado']['FCL'].sum()
         cp = dwk[dwk['Status'] == 'Confirmado']['Pallets'].sum()
+        canc_fcl = dwk[dwk['Status'] == 'Cancelado']['FCL'].sum()
+        canc_fcl_p = dwk[dwk['Status'] == 'Cancelado']['Pallets'].sum()
 
         # All of the following are GENERAL counters (all statuses), not limited to Confirmado —
         # only "fcl_conf" above is status-filtered.
@@ -142,10 +144,10 @@ def build_dashboard_data(xlsm_path):
         FWKS.append({"wk": wk, "label": f"S{wk}", "fcl_conf": round(float(c), 1),
                      "fcl_proj": round(float(p), 1), "fcl_addon": round(float(a), 1),
                      "fcl_add": round(float(fadd), 1), "fcl_expo": round(float(fexpo), 1), "fcl_exadd": round(float(fexadd), 1),
-                     "fcl_airadd": round(float(fairadd), 1),
+                     "fcl_airadd": round(float(fairadd), 1), "fcl_cancelado": round(float(canc_fcl), 1),
                      "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1),
                      "pal_add": round(float(padd), 1), "pal_expo": round(float(pexpo), 1), "pal_exadd": round(float(pexadd), 1),
-                     "pal_airadd": round(float(pairadd), 1)})
+                     "pal_airadd": round(float(pairadd), 1), "pal_cancelado": round(float(canc_fcl_p), 1)})
 
         cm = dwk[(dwk['Status']=='Confirmado') & (dwk['Mode']=='Marítimo')]['FCL'].sum()
         ca = dwk[(dwk['Status']=='Confirmado') & (dwk['Mode']=='Aéreo')]['FCL'].sum()
@@ -231,6 +233,8 @@ def build_dashboard_data(xlsm_path):
             m_wk_mode = m_mode & (df['Pack Plan'] == wk)
             c = dwk[dwk['Status'] == 'Confirmado']['FCL'].sum()
             cp = dwk[dwk['Status'] == 'Confirmado']['Pallets'].sum()
+            canc_fcl = dwk[dwk['Status'] == 'Cancelado']['FCL'].sum()
+            canc_fcl_p = dwk[dwk['Status'] == 'Cancelado']['Pallets'].sum()
             p = df[m_wk_mode & mask_proj]['FCL'].sum()
             fadd = df[m_wk_mode & mask_add_plain]['FCL'].sum()
             fexpo = df[m_wk_mode & mask_expo]['FCL'].sum()
@@ -246,10 +250,10 @@ def build_dashboard_data(xlsm_path):
             rows.append({"wk": wk, "label": f"S{wk}", "fcl_conf": round(float(c), 1),
                          "fcl_proj": round(float(p), 1), "fcl_addon": round(float(a), 1),
                          "fcl_add": round(float(fadd), 1), "fcl_expo": round(float(fexpo), 1), "fcl_exadd": round(float(fexadd), 1),
-                         "fcl_airadd": round(float(fairadd), 1),
+                         "fcl_airadd": round(float(fairadd), 1), "fcl_cancelado": round(float(canc_fcl), 1),
                          "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1),
                          "pal_add": round(float(padd), 1), "pal_expo": round(float(pexpo), 1), "pal_exadd": round(float(pexadd), 1),
-                         "pal_airadd": round(float(pairadd), 1)})
+                         "pal_airadd": round(float(pairadd), 1), "pal_cancelado": round(float(canc_fcl_p), 1)})
         FWKS_MODE[mode] = rows
 
     # ══════════════════════════════════════════════════════════════
