@@ -98,17 +98,18 @@ def build_dashboard_data(xlsm_path):
     AIRLINES = [{"name": str(k), "count": int(v), "color": palette[i % len(palette)]} for i, (k, v) in enumerate(al.items())]
 
     # ══════════════════════════ FWKS / WKL ══════════════════════════
-    # 6W field encodes: [XX][YY][SUFFIX]. SUFFIX: SOP/PRE = base projection (orange line),
-    # ADD/EXPO = safety/additional containers (small red/green tag). The record is bucketed
-    # under its OWN Pack Plan week (not the YY target-week digits) — verified against source pivots.
-    def parse_6w(v):
-        if pd.isna(v): return None
-        m = re.match(r'(\d{2})(\d{2})([A-Z]+)', str(v))
-        if not m: return None
-        return int(m.group(1)), int(m.group(2)), m.group(3)
-
-    df['_6w_parsed'] = df['6W'].apply(parse_6w)
-    df['_6w_suf'] = df['_6w_parsed'].apply(lambda t: t[2] if t else None)
+    # 6W field formats vary (e.g. "2227ADD", "PRE27", "2224PRE", bare "EXADD") — so instead of
+    # strict positional parsing we detect each category by substring containment, checked in
+    # priority order so overlapping tags (AIRADD/EXADD both contain "ADD") don't get double-counted.
+    df['_6w_str'] = df['6W'].apply(lambda v: '' if pd.isna(v) else str(v).upper())
+    mask_airadd = df['_6w_str'].str.contains('AIRADD', na=False)
+    mask_exadd = df['_6w_str'].str.contains('EXADD', na=False) & ~mask_airadd
+    mask_expo = df['_6w_str'].str.contains('EXPO', na=False) & ~mask_airadd & ~mask_exadd
+    mask_add_plain = df['_6w_str'].str.contains('ADD', na=False) & ~mask_airadd & ~mask_exadd
+    mask_pre = df['_6w_str'].str.contains('PRE', na=False)
+    mask_status_cc = df['Status'].isin(['Confirmado', 'Cancelado'])
+    # Orange projection line = FCL tagged PRE (anywhere in the 6W code) OR already Confirmado/Cancelado
+    mask_proj = mask_pre | mask_status_cc
 
     weeks = sorted(df['Pack Plan'].dropna().unique().tolist())
     weeks = [int(w) for w in weeks]
@@ -118,17 +119,33 @@ def build_dashboard_data(xlsm_path):
     FWKS, WKL = [], []
     for wk in weeks:
         dwk = df[df['Pack Plan'] == wk]
+        m_wk = df['Pack Plan'] == wk
         c = dwk[dwk['Status'] == 'Confirmado']['FCL'].sum()
         cp = dwk[dwk['Status'] == 'Confirmado']['Pallets'].sum()
 
-        p = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['FCL'].sum()
-        a = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['FCL'].sum()
-        pp = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['Pallets'].sum()
-        pa = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['Pallets'].sum()
+        # All of the following are GENERAL counters (all statuses), not limited to Confirmado —
+        # only "fcl_conf" above is status-filtered.
+        p = df[m_wk & mask_proj]['FCL'].sum()
+        fadd = df[m_wk & mask_add_plain]['FCL'].sum()
+        fexpo = df[m_wk & mask_expo]['FCL'].sum()
+        fexadd = df[m_wk & mask_exadd]['FCL'].sum()
+        fairadd = df[m_wk & mask_airadd]['FCL'].sum()
+        a = fadd + fexadd  # badge/total-projected addon total = ADD + EXADD (EXPO and AIRADD tracked separately)
+
+        pp = df[m_wk & mask_proj]['Pallets'].sum()
+        padd = df[m_wk & mask_add_plain]['Pallets'].sum()
+        pexpo = df[m_wk & mask_expo]['Pallets'].sum()
+        pexadd = df[m_wk & mask_exadd]['Pallets'].sum()
+        pairadd = df[m_wk & mask_airadd]['Pallets'].sum()
+        pa = padd + pexadd
 
         FWKS.append({"wk": wk, "label": f"S{wk}", "fcl_conf": round(float(c), 1),
                      "fcl_proj": round(float(p), 1), "fcl_addon": round(float(a), 1),
-                     "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1)})
+                     "fcl_add": round(float(fadd), 1), "fcl_expo": round(float(fexpo), 1), "fcl_exadd": round(float(fexadd), 1),
+                     "fcl_airadd": round(float(fairadd), 1),
+                     "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1),
+                     "pal_add": round(float(padd), 1), "pal_expo": round(float(pexpo), 1), "pal_exadd": round(float(pexadd), 1),
+                     "pal_airadd": round(float(pairadd), 1)})
 
         cm = dwk[(dwk['Status']=='Confirmado') & (dwk['Mode']=='Marítimo')]['FCL'].sum()
         ca = dwk[(dwk['Status']=='Confirmado') & (dwk['Mode']=='Aéreo')]['FCL'].sum()
@@ -207,18 +224,32 @@ def build_dashboard_data(xlsm_path):
     FWKS_MODE = {}
     for mode in ['Aéreo', 'Marítimo', 'Terrestre']:
         dmode = df[df['Mode'] == mode]
+        m_mode = df['Mode'] == mode
         rows = []
         for wk in weeks:
             dwk = dmode[dmode['Pack Plan'] == wk]
+            m_wk_mode = m_mode & (df['Pack Plan'] == wk)
             c = dwk[dwk['Status'] == 'Confirmado']['FCL'].sum()
             cp = dwk[dwk['Status'] == 'Confirmado']['Pallets'].sum()
-            p = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['FCL'].sum()
-            a = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['FCL'].sum()
-            pp = dwk[dwk['_6w_suf'].isin(['SOP', 'PRE'])]['Pallets'].sum()
-            pa = dwk[dwk['_6w_suf'].isin(['ADD', 'EXPO'])]['Pallets'].sum()
+            p = df[m_wk_mode & mask_proj]['FCL'].sum()
+            fadd = df[m_wk_mode & mask_add_plain]['FCL'].sum()
+            fexpo = df[m_wk_mode & mask_expo]['FCL'].sum()
+            fexadd = df[m_wk_mode & mask_exadd]['FCL'].sum()
+            fairadd = df[m_wk_mode & mask_airadd]['FCL'].sum()
+            a = fadd + fexadd
+            pp = df[m_wk_mode & mask_proj]['Pallets'].sum()
+            padd = df[m_wk_mode & mask_add_plain]['Pallets'].sum()
+            pexpo = df[m_wk_mode & mask_expo]['Pallets'].sum()
+            pexadd = df[m_wk_mode & mask_exadd]['Pallets'].sum()
+            pairadd = df[m_wk_mode & mask_airadd]['Pallets'].sum()
+            pa = padd + pexadd
             rows.append({"wk": wk, "label": f"S{wk}", "fcl_conf": round(float(c), 1),
                          "fcl_proj": round(float(p), 1), "fcl_addon": round(float(a), 1),
-                         "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1)})
+                         "fcl_add": round(float(fadd), 1), "fcl_expo": round(float(fexpo), 1), "fcl_exadd": round(float(fexadd), 1),
+                         "fcl_airadd": round(float(fairadd), 1),
+                         "pal_conf": round(float(cp), 1), "pal_proj": round(float(pp), 1), "pal_addon": round(float(pa), 1),
+                         "pal_add": round(float(padd), 1), "pal_expo": round(float(pexpo), 1), "pal_exadd": round(float(pexadd), 1),
+                         "pal_airadd": round(float(pairadd), 1)})
         FWKS_MODE[mode] = rows
 
     # ══════════════════════════════════════════════════════════════
