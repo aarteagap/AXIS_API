@@ -35,6 +35,44 @@ GITHUB_FILE_PATH = os.environ.get("GITHUB_FILE_PATH", "data.json")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
 
 
+# Supabase settings for the new, more secure data path. Set these as environment
+# variables in Render — the service_role key must NEVER be exposed to the browser.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
+# Which datasets Supplier accounts are allowed to see (must match schema.sql seed data)
+SUPPLIER_VISIBLE_DATASETS = {"SENASA", "EMBARQUES", "TR_PROGRAM", "WROWS", "AIR", "AIRLINES"}
+
+
+def push_to_supabase(data_dict, updater_name=""):
+    """Upsert each top-level dataset (SENASA, WROWS, AIR, ...) into the dashboard_data table."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False, "SUPABASE_URL / SUPABASE_SERVICE_KEY not configured on the server."
+
+    endpoint = f"{SUPABASE_URL}/rest/v1/dashboard_data"
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    }
+    who = updater_name.strip() if updater_name and updater_name.strip() else "Usuario sin identificar"
+
+    rows = []
+    for dataset_name, payload in data_dict.items():
+        rows.append({
+            "dataset_name": dataset_name,
+            "payload": payload,
+            "supplier_visible": dataset_name in SUPPLIER_VISIBLE_DATASETS,
+            "updated_by": who,
+        })
+
+    r = requests.post(f"{endpoint}?on_conflict=dataset_name", headers=headers, json=rows)
+    if r.status_code not in (200, 201):
+        return False, f"Supabase rejected the update (status {r.status_code}): {r.text[:400]}"
+    return True, f"{len(rows)} datasets updated"
+
+
 def github_headers():
     return {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -136,11 +174,19 @@ def publish():
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
-    ok, info = push_to_github(data, updater_name)
-    if not ok:
-        return jsonify({"error": info}), 502
+    ok_gh, info_gh = push_to_github(data, updater_name)
+    ok_sb, info_sb = push_to_supabase(data, updater_name)
 
-    return jsonify({"status": "ok", "commit_sha": info, "updated_by": updater_name, "rows": {k: len(v) if isinstance(v, list) else None for k, v in data.items()}})
+    if not ok_gh and not ok_sb:
+        return jsonify({"error": f"Both destinations failed. GitHub: {info_gh} | Supabase: {info_sb}"}), 502
+
+    return jsonify({
+        "status": "ok",
+        "github": {"ok": ok_gh, "info": info_gh},
+        "supabase": {"ok": ok_sb, "info": info_sb},
+        "updated_by": updater_name,
+        "rows": {k: len(v) if isinstance(v, list) else None for k, v in data.items()},
+    })
 
 
 if __name__ == "__main__":
