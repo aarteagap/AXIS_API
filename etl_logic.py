@@ -336,8 +336,45 @@ def build_dashboard_data(xlsm_path):
             "po": str(r['PO']) if pd.notna(r['PO']) else "",
         })
 
+    # ══════════════════════════════════════════════════════════════
+    # FORECAST_RAW — row-level data so the Forecast tab can filter by Shipper/Modo/Pack Plan
+    # on the client, then re-aggregate into weekly totals on the fly.
+    # ══════════════════════════════════════════════════════════════
+    FORECAST_RAW = []
+    for _, r in df.iterrows():
+        s6w = '' if pd.isna(r['6W']) else str(r['6W']).upper()
+        is_airadd = 'AIRADD' in s6w
+        is_exadd = ('EXADD' in s6w) and not is_airadd
+        is_expo = ('EXPO' in s6w) and not is_airadd and not is_exadd
+        is_add = ('ADD' in s6w) and not is_airadd and not is_exadd
+        is_pre = 'PRE' in s6w
+        status = r['Status']
+        FORECAST_RAW.append({
+            "pack_plan": int(r['Pack Plan']),
+            "mode": r['Mode'] if pd.notna(r['Mode']) else "",
+            "shipper": r['Shipper'] if pd.notna(r['Shipper']) else "",
+            "status": status,
+            "fcl": round(float(r['FCL']), 2) if pd.notna(r['FCL']) else 0.0,
+            "pallets": round(float(r['Pallets']), 1) if pd.notna(r['Pallets']) else 0.0,
+            "is_pre": bool(is_pre), "is_add": bool(is_add), "is_expo": bool(is_expo),
+            "is_exadd": bool(is_exadd), "is_airadd": bool(is_airadd),
+        })
+
+    # ══════════════════════════════════════════════════════════════
+    # META — publish metadata (when the source Excel was last modified)
+    # ══════════════════════════════════════════════════════════════
+    try:
+        from openpyxl import load_workbook as _load_wb_meta
+        _wb_props = _load_wb_meta(xlsm_path, read_only=True).properties
+        _excel_modified = _wb_props.modified.isoformat() if _wb_props.modified else None
+    except Exception:
+        _excel_modified = None
+
+    META = {"excel_modified_iso": _excel_modified}
+
     out = dict(SENASA=SENASA, WROWS=WROWS, AIR=AIR, AIRLINES=AIRLINES, FWKS=FWKS, WKL=WKL,
                KPI=KPI, EX=EX, DEST=DEST, LINEAS=LINEAS, PMI_PORTS=PMI_PORTS, FWKS_MODE=FWKS_MODE,
-               EMBARQUES=EMBARQUES, TR_PROGRAM=TR_PROGRAM, PORTS_RAW=PORTS_RAW)
+               EMBARQUES=EMBARQUES, TR_PROGRAM=TR_PROGRAM, PORTS_RAW=PORTS_RAW,
+               FORECAST_RAW=FORECAST_RAW, META=META)
 
     return out

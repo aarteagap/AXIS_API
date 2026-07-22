@@ -41,7 +41,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 # Which datasets Supplier accounts are allowed to see (must match schema.sql seed data)
-SUPPLIER_VISIBLE_DATASETS = {"SENASA", "EMBARQUES", "TR_PROGRAM", "WROWS", "AIR", "AIRLINES"}
+SUPPLIER_VISIBLE_DATASETS = {"SENASA", "EMBARQUES", "TR_PROGRAM", "WROWS", "AIR", "AIRLINES", "META"}
 
 
 def push_to_supabase(data_dict, updater_name=""):
@@ -173,6 +173,9 @@ def publish():
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+    if isinstance(data.get("META"), dict):
+        data["META"]["published_at_iso"] = datetime.now(timezone.utc).isoformat()
 
     ok_gh, info_gh = push_to_github(data, updater_name)
     ok_sb, info_sb = push_to_supabase(data, updater_name)
