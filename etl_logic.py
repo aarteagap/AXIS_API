@@ -365,8 +365,18 @@ def build_dashboard_data(xlsm_path):
     # ══════════════════════════════════════════════════════════════
     try:
         from openpyxl import load_workbook as _load_wb_meta
+        from datetime import timezone as _tz
         _wb_props = _load_wb_meta(xlsm_path, read_only=True).properties
-        _excel_modified = _wb_props.modified.isoformat() if _wb_props.modified else None
+        if _wb_props.modified:
+            _dt = _wb_props.modified
+            # OOXML core properties store dates in UTC; openpyxl returns a naive datetime for
+            # this value, so without explicitly marking it as UTC, JS in the browser would
+            # misinterpret it as already being local time (shifting it by the UTC offset).
+            if _dt.tzinfo is None:
+                _dt = _dt.replace(tzinfo=_tz.utc)
+            _excel_modified = _dt.isoformat()
+        else:
+            _excel_modified = None
     except Exception:
         _excel_modified = None
 
