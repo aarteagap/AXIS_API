@@ -382,9 +382,27 @@ def build_dashboard_data(xlsm_path):
 
     META = {"excel_modified_iso": _excel_modified}
 
+    # ══════════════════════════════════════════════════════════════
+    # EXECUTE_RAW — row-level Confirmado data for the Execute tab's global filters,
+    # KPI cards (Cold treatments / Senasa Attention / Booking counts) and the
+    # PO-diferenciado-by-mode line chart.
+    # ══════════════════════════════════════════════════════════════
+    EXECUTE_RAW = []
+    for _, r in conf.iterrows():
+        EXECUTE_RAW.append({
+            "pack_plan": int(r['Pack Plan']),
+            "mode": r['Mode'] if pd.notna(r['Mode']) else "",
+            "shipper": r['Shipper'] if pd.notna(r['Shipper']) else "",
+            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "po": str(r['PO']) if pd.notna(r['PO']) else "",
+            "booking": str(r['Booking|AWB|CRT']) if pd.notna(r['Booking|AWB|CRT']) else "",
+            "has_tr_time": bool(pd.notna(r['T.R. Time'])),
+            "senasa_att": r['SENASA Attention'] if pd.notna(r['SENASA Attention']) else "",
+        })
+
     out = dict(SENASA=SENASA, WROWS=WROWS, AIR=AIR, AIRLINES=AIRLINES, FWKS=FWKS, WKL=WKL,
                KPI=KPI, EX=EX, DEST=DEST, LINEAS=LINEAS, PMI_PORTS=PMI_PORTS, FWKS_MODE=FWKS_MODE,
                EMBARQUES=EMBARQUES, TR_PROGRAM=TR_PROGRAM, PORTS_RAW=PORTS_RAW,
-               FORECAST_RAW=FORECAST_RAW, META=META)
+               FORECAST_RAW=FORECAST_RAW, META=META, EXECUTE_RAW=EXECUTE_RAW)
 
     return out
