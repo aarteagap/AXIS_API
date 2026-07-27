@@ -46,7 +46,7 @@ def build_dashboard_data(xlsm_path):
         })
 
     # ══════════════════════════ WROWS (weekly export program) ══════════════════════════
-    wr = df[df['Status'] != 'Cancelado'].copy()
+    wr = df[df['Status'] == 'Confirmado'].copy()
     WROWS = []
     for _, r in wr.iterrows():
         WROWS.append({
