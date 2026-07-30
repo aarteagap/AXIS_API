@@ -7,7 +7,9 @@ import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-
+#2 LINEAS DE CODIGO INSERTADAS PARA AXIS 2.0.
+from app_publish_transportes_snippet import register_publish_transportes
+   register_publish_transportes(app)
 # Enable CORS so the dashboard (hosted on GitHub Pages, a different origin) can call this API.
 @app.after_request
 def add_cors_headers(resp):
