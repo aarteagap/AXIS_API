@@ -341,7 +341,8 @@ def build_dashboard_data(xlsm_path):
     # on the client, then re-aggregate into weekly totals on the fly.
     # ══════════════════════════════════════════════════════════════
     FORECAST_RAW = []
-    for _, r in df.iterrows():
+    df_fc = df[df['Status'].isin(['Confirmado', 'Proyectado', 'Cancelado'])]
+    for _, r in df_fc.iterrows():
         s6w = '' if pd.isna(r['6W']) else str(r['6W']).upper()
         is_airadd = 'AIRADD' in s6w
         is_exadd = ('EXADD' in s6w) and not is_airadd
