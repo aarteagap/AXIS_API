@@ -103,9 +103,9 @@ def build_dashboard_data(xlsm_path):
     # priority order so overlapping tags (AIRADD/EXADD both contain "ADD") don't get double-counted.
     df['_6w_str'] = df['6W'].apply(lambda v: '' if pd.isna(v) else str(v).upper())
     mask_airadd = df['_6w_str'].str.contains('AIRADD', na=False)
-    mask_exadd = df['_6w_str'].str.contains('EXADD', na=False) & ~mask_airadd
+    mask_exadd = df['_6w_str'].str.contains('EXPOADD', na=False) & ~mask_airadd
     mask_expo = df['_6w_str'].str.contains('EXPO', na=False) & ~mask_airadd & ~mask_exadd
-    mask_add_plain = df['_6w_str'].str.contains('ADD', na=False) & ~mask_airadd & ~mask_exadd
+    mask_add_plain = df['_6w_str'].str.contains('ADD', na=False) & ~mask_airadd & ~mask_exadd & ~mask_expo
     mask_pre = df['_6w_str'].str.contains('PRE', na=False)
     mask_status_cc = df['Status'].isin(['Confirmado', 'Cancelado'])
     # Orange projection line = FCL tagged PRE (anywhere in the 6W code) OR already Confirmado/Cancelado
@@ -345,9 +345,9 @@ def build_dashboard_data(xlsm_path):
     for _, r in df_fc.iterrows():
         s6w = '' if pd.isna(r['6W']) else str(r['6W']).upper()
         is_airadd = 'AIRADD' in s6w
-        is_exadd = ('EXADD' in s6w) and not is_airadd
+        is_exadd = ('EXPOADD' in s6w) and not is_airadd
         is_expo = ('EXPO' in s6w) and not is_airadd and not is_exadd
-        is_add = ('ADD' in s6w) and not is_airadd and not is_exadd
+        is_add = ('ADD' in s6w) and not is_airadd and not is_exadd and not is_expo
         is_pre = 'PRE' in s6w
         status = r['Status']
         FORECAST_RAW.append({
