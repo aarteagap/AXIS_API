@@ -101,6 +101,8 @@ def load_rows(xlsx_path):
                 positioning_delta = None
 
         row = {
+            'id': val(r, 'ID'),
+            'instruction': _clean_str(val(r, 'Instrucción')),
             'pp': int(pp),
             'sede': sede,
             'transportista': _clean_str(val(r, 'Transportista')),
@@ -136,6 +138,57 @@ def load_rows(xlsx_path):
         }
         out.append(row)
     return out
+
+
+# ── Reglas de calidad de datos por campo ────────────────────
+# (campo, mínimo válido, máximo válido, motivo legible en inglés — igual
+# estilo/idioma que ya usa el resto de labels de Transporte en el dashboard)
+DATA_QUALITY_RULES = [
+    ('emptyOutboundH', 0, 96,  'Arrival at plant occurs before route start, or transit exceeds 4 days'),
+    ('routeStartDelayH', 0, 48, 'Route start occurs before warehouse departure, or delay exceeds 2 days'),
+    ('checkInDelayH', 0, 24,   'Check-in delay is negative or exceeds 24 hours'),
+    ('entryDelayH', 0, 24,     'Entry delay is negative or exceeds 24 hours'),
+    ('fullInboundH', 0, 96,    'Arrival at port occurs before departure from plant, or transit exceeds 4 days'),
+    ('detGateOutH', 0, 48,     'Detention time at gate-out is negative or exceeds 2 days'),
+    ('tiempoCargaMin', 0, 720, 'Loading time is negative or exceeds 12 hours'),
+    ('detPackingH', 0, 48,     'Detention time at packing is negative or exceeds 2 days'),
+]
+
+def data_quality_report(rows):
+    """Para cada fila, revisa los campos de duración contra un rango válido
+    de negocio. Devuelve la lista de excepciones (una por campo problemático,
+    una fila puede aportar más de una) para mostrar en el banner de calidad
+    de datos, y el set de índices de fila afectados."""
+    issues = []
+    bad_row_idx = set()
+    for i, r in enumerate(rows):
+        for field, lo, hi, reason in DATA_QUALITY_RULES:
+            v = r.get(field)
+            if v is None:
+                continue
+            if v < lo or v > hi:
+                issues.append({
+                    'instruction': r.get('instruction') or f"ID-{r.get('id')}" if r.get('id') is not None else '—',
+                    'pp': r.get('pp'),
+                    'sede': r.get('sede'),
+                    'field': field,
+                    'value': v,
+                    'reason': reason,
+                })
+                bad_row_idx.add(i)
+    return issues, bad_row_idx
+
+
+def avg_excluding_quality_issues(rows, field):
+    """Promedio de un campo, excluyendo los valores marcados por
+    DATA_QUALITY_RULES para ese campo específico (no toda la fila)."""
+    rule = next((ru for ru in DATA_QUALITY_RULES if ru[0] == field), None)
+    if not rule:
+        vals = [r[field] for r in rows if r.get(field) is not None]
+        return sum(vals) / len(vals) if vals else None
+    _, lo, hi, _ = rule
+    vals = [r[field] for r in rows if r.get(field) is not None and lo <= r[field] <= hi]
+    return sum(vals) / len(vals) if vals else None
 
 
 def _count_by(rows, field):
@@ -194,6 +247,8 @@ def build_datasets(rows):
         'weeks': sorted({r['pp'] for r in rows}),
     }
 
+    dq_issues, dq_bad_rows = data_quality_report(rows)
+
     return {
         'TRANSPORT_RAW': rows,
         'WEEKLY': dict(sorted(weekly.items(), key=lambda kv: int(kv[0][1:]))),
@@ -202,6 +257,7 @@ def build_datasets(rows):
         'BY_PORT_RECEIVE': dict(by_port_receive),
         'BY_LINE': dict(by_line),
         'BY_CARRIER': dict(by_carrier),
+        'DATA_QUALITY': {'issues': dq_issues, 'affected_rows': len(dq_bad_rows), 'total_rows': len(rows)},
     }
 
 
