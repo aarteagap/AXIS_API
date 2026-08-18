@@ -300,7 +300,7 @@ def build_dashboard_data(xlsm_path):
     # ══════════════════════════════════════════════════════════════
     # TR_PROGRAM — "Programa de Técnicos Reefer" (PMI tab), Status=Confirmado
     # ══════════════════════════════════════════════════════════════
-    tr = conf[conf['Assigned T.R.'].notna()].copy()
+    tr = conf[conf['T.R. Time'].notna() | conf['Assigned T.R.'].notna()].copy()
     TR_PROGRAM = []
     for _, r in tr.iterrows():
         TR_PROGRAM.append({
@@ -334,6 +334,7 @@ def build_dashboard_data(xlsm_path):
             "fcl": round(float(r['FCL']), 2),
             "mode": r['Mode'] if pd.notna(r['Mode']) else "",
             "po": str(r['PO']) if pd.notna(r['PO']) else "",
+            "line": r['Line'] if pd.notna(r['Line']) else "",
         })
 
     # ══════════════════════════════════════════════════════════════
@@ -354,6 +355,7 @@ def build_dashboard_data(xlsm_path):
             "pack_plan": int(r['Pack Plan']),
             "mode": r['Mode'] if pd.notna(r['Mode']) else "",
             "shipper": r['Shipper'] if pd.notna(r['Shipper']) else "",
+            "pod": r['POD'] if pd.notna(r['POD']) else "",
             "status": status,
             "fcl": round(float(r['FCL']), 2) if pd.notna(r['FCL']) else 0.0,
             "pallets": round(float(r['Pallets']), 1) if pd.notna(r['Pallets']) else 0.0,
