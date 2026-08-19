@@ -12,14 +12,24 @@ def build_dashboard_data(xlsm_path):
 
     def dstr(x):
         if pd.isna(x): return ""
-        return pd.Timestamp(x).strftime('%Y-%m-%d')
+        try:
+            return pd.Timestamp(x).strftime('%Y-%m-%d')
+        except Exception:
+            return ""
 
     def tstr(x):
         if pd.isna(x): return ""
-        if hasattr(x, 'strftime'): return x.strftime('%H:%M')
         try:
+            if hasattr(x, 'strftime'): return x.strftime('%H:%M')
             total = int(x.total_seconds())
             return f"{total//3600:02d}:{(total%3600)//60:02d}"
+        except Exception:
+            return ""
+
+    def dstr_ddmmyyyy(x):
+        if pd.isna(x): return ""
+        try:
+            return pd.Timestamp(x).strftime('%d/%m/%Y')
         except Exception:
             return ""
 
@@ -42,7 +52,7 @@ def build_dashboard_data(xlsm_path):
             "insp_time": tstr(r['Inspection Time']),
             "fcl": round(float(r['FCL']), 2),
             "po": str(r['PO']) if pd.notna(r['PO']) else "",
-            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "dispatch_date": dstr_ddmmyyyy(r['Dispatch Date']),
         })
 
     # ══════════════════════════ WROWS (weekly export program) ══════════════════════════
@@ -73,7 +83,7 @@ def build_dashboard_data(xlsm_path):
             "instruction": r['Instruction'] if pd.notna(r['Instruction']) else "",
             "log_op": r['Logistics Operator'] if pd.notna(r['Logistics Operator']) else "",
             "dest": r['POD'] if pd.notna(r['POD']) else "",
-            "dispatch": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "dispatch": dstr_ddmmyyyy(r['Dispatch Date']),
             "postime": tstr(r['Positioning Time']),
             "gatein": r['Gate-In Storage'] if pd.notna(r['Gate-In Storage']) else "",
             "pallets": int(r['Pallets']) if pd.notna(r['Pallets']) else 0,
@@ -261,8 +271,8 @@ def build_dashboard_data(xlsm_path):
     # ══════════════════════════════════════════════════════════════
     def tstr2(x):
         if pd.isna(x): return ""
-        if hasattr(x, 'strftime'): return x.strftime('%H:%M')
         try:
+            if hasattr(x, 'strftime'): return x.strftime('%H:%M')
             total = int(x.total_seconds())
             return f"{total//3600:02d}:{(total%3600)//60:02d}"
         except Exception:
@@ -290,7 +300,7 @@ def build_dashboard_data(xlsm_path):
             "packing": r['Packing'] if pd.notna(r['Packing']) else "",
             "gatein": r['Gate-In Storage'] if pd.notna(r['Gate-In Storage']) else "",
             "postime": tstr2(r['Positioning Time']),
-            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "dispatch_date": dstr_ddmmyyyy(r['Dispatch Date']),
             "mode": r['Mode'] if pd.notna(r['Mode']) else "",
             "dam": str(r['DAM']) if pd.notna(r['DAM']) else "",
             "fcl": round(float(r['FCL']), 2) if pd.notna(r['FCL']) else 0.0,
@@ -307,7 +317,7 @@ def build_dashboard_data(xlsm_path):
             "packing": r['Packing'] if pd.notna(r['Packing']) else "",
             "pack_plan": int(r['Pack Plan']),
             "mode": r['Mode'] if pd.notna(r['Mode']) else "",
-            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "dispatch_date": dstr_ddmmyyyy(r['Dispatch Date']),
             "log_op": r['Logistics Operator'] if pd.notna(r['Logistics Operator']) else "",
             "senasa_att": r['SENASA Attention'] if pd.notna(r['SENASA Attention']) else "",
             "line": r['Line'] if pd.notna(r['Line']) else "",
@@ -396,7 +406,7 @@ def build_dashboard_data(xlsm_path):
             "pack_plan": int(r['Pack Plan']),
             "mode": r['Mode'] if pd.notna(r['Mode']) else "",
             "shipper": r['Shipper'] if pd.notna(r['Shipper']) else "",
-            "dispatch_date": pd.Timestamp(r['Dispatch Date']).strftime('%d/%m/%Y') if pd.notna(r['Dispatch Date']) else "",
+            "dispatch_date": dstr_ddmmyyyy(r['Dispatch Date']),
             "po": str(r['PO']) if pd.notna(r['PO']) else "",
             "booking": str(r['Booking|AWB|CRT']) if pd.notna(r['Booking|AWB|CRT']) else "",
             "has_tr_time": bool(pd.notna(r['T.R. Time'])),
