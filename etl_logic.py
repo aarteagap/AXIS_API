@@ -396,6 +396,101 @@ def build_dashboard_data(xlsm_path):
     META = {"excel_modified_iso": _excel_modified}
 
     # ══════════════════════════════════════════════════════════════
+    # INCIDENCIAS — vista nueva de Incident Management (solo perfil
+    # hortifrut). Fuente: hoja "Incidencias" del mismo Excel, cruzada
+    # por ID_PO (que puede venir como Instruction estilo "RH-0133T" o
+    # como PO estilo "PO00000051363") contra HORIZON_FORECAST para
+    # traer Mode / Pack Plan / Packing / FCL / Pallets reales.
+    # Replica la lógica de los 4 dashboards de Tableau que ya existían
+    # (Incidents, General Compliance, Marítimo, Aéreo):
+    #   Incumplimiento Marítimo % = COUNTD(Instruction con incidencia) / COUNTD(Instruction total)
+    #   Incumplimiento Aéreo %    = COUNTD(PO con incidencia) / COUNTD(PO total)
+    #   General Compliance %     = Σ FCL con incidencia / Σ FCL total
+    # ══════════════════════════════════════════════════════════════
+    INCIDENCIAS = []
+    UNIVERSO_COMPLIANCE = {"marítimo": {"instructions": 0, "fcl_total": 0.0, "pallets_total": 0.0},
+                            "aéreo": {"pos": 0, "fcl_total": 0.0, "pallets_total": 0.0}}
+    try:
+        inc_df = pd.read_excel(xlsm_path, sheet_name='Incidencias', engine='openpyxl', header=0)
+        inc_df = inc_df[inc_df.iloc[:, 4].notna() & inc_df.iloc[:, 0].notna()].copy()  # ID_Incident y Filial no vacíos
+
+        # Índice de cruce: cada Instruction/PO de HORIZON_FORECAST (Confirmado/Proyectado/Cancelado)
+        # apunta a su fila, indexado por ambos estilos de identificador ya que en la
+        # práctica "ID_PO" de Incidencias puede matchear cualquiera de los dos.
+        fc_index = {}
+        for _, r in df_fc.iterrows():
+            instr = str(r['Instruction']) if pd.notna(r['Instruction']) else None
+            po = str(r['PO']) if pd.notna(r['PO']) else None
+            if instr: fc_index[instr] = r
+            if po: fc_index[po] = r
+
+        for _, r in inc_df.iterrows():
+            id_po = r.iloc[2]
+            id_po_str = str(id_po).strip() if pd.notna(id_po) and str(id_po).strip() not in ('', 'Total') else None
+            match = fc_index.get(id_po_str) if id_po_str else None
+            criticidad_raw = r.iloc[10]
+            try:
+                criticidad = int(criticidad_raw) if pd.notna(criticidad_raw) and str(criticidad_raw).strip() != '' else None
+            except (ValueError, TypeError):
+                criticidad = None
+            INCIDENCIAS.append({
+                "id_incident": int(r.iloc[4]),
+                "persona": r.iloc[3] if pd.notna(r.iloc[3]) else "",
+                "id_po": id_po_str or "",
+                "dispatch_date": dstr_ddmmyyyy(r.iloc[6]) if pd.notna(r.iloc[6]) else "",
+                "t_supplier": r.iloc[7] if pd.notna(r.iloc[7]) else "",
+                "supplier": r.iloc[8] if pd.notna(r.iloc[8]) else "",
+                "incident": r.iloc[9] if pd.notna(r.iloc[9]) else "",
+                "criticidad": criticidad,
+                "value_range": r.iloc[11] if pd.notna(r.iloc[11]) else "",
+                "comentario": r.iloc[12] if pd.notna(r.iloc[12]) else "",
+                # Enriquecido vía cruce (None si esta incidencia no tiene ID_PO válido o no matcheó):
+                "mode": (match['Mode'] if match is not None and pd.notna(match['Mode']) else None),
+                "pack_plan": (int(match['Pack Plan']) if match is not None and pd.notna(match['Pack Plan']) else None),
+                "packing": (match['Packing'] if match is not None and pd.notna(match['Packing']) else None),
+                "pod": (match['POD'] if match is not None and pd.notna(match['POD']) else None),
+                "fcl": (round(float(match['FCL']), 2) if match is not None and pd.notna(match['FCL']) else None),
+                "pallets": (round(float(match['Pallets']), 1) if match is not None and pd.notna(match['Pallets']) else None),
+                "matched": match is not None,
+            })
+
+        # Universo total (denominador de los % de compliance), separado por modo.
+        marit_ids = set()
+        for _, r in df_fc.iterrows():
+            if r['Mode'] != 'Marítimo': continue
+            if pd.notna(r['Instruction']): marit_ids.add(str(r['Instruction']))
+            if pd.notna(r['PO']): marit_ids.add(str(r['PO']))
+        aereo_pos = set(str(r['PO']) for _, r in df_fc.iterrows() if r['Mode']=='Aéreo' and pd.notna(r['PO']))
+
+        UNIVERSO_COMPLIANCE["marítimo"]["instructions"] = len(marit_ids)
+        UNIVERSO_COMPLIANCE["aéreo"]["pos"] = len(aereo_pos)
+        UNIVERSO_COMPLIANCE["marítimo"]["fcl_total"] = round(float(df_fc[df_fc['Mode']=='Marítimo']['FCL'].sum()), 2)
+        UNIVERSO_COMPLIANCE["aéreo"]["fcl_total"] = round(float(df_fc[df_fc['Mode']=='Aéreo']['FCL'].sum()), 2)
+        UNIVERSO_COMPLIANCE["marítimo"]["pallets_total"] = round(float(df_fc[df_fc['Mode']=='Marítimo']['Pallets'].sum()), 1)
+        UNIVERSO_COMPLIANCE["aéreo"]["pallets_total"] = round(float(df_fc[df_fc['Mode']=='Aéreo']['Pallets'].sum()), 1)
+
+        # Universo por Pack Plan (para la curva histórica de compliance semanal).
+        marit_by_pp = {}
+        for _, r in df_fc.iterrows():
+            if r['Mode'] != 'Marítimo' or pd.isna(r['Pack Plan']): continue
+            pp = int(r['Pack Plan'])
+            s = marit_by_pp.setdefault(pp, set())
+            if pd.notna(r['Instruction']): s.add(str(r['Instruction']))
+            if pd.notna(r['PO']): s.add(str(r['PO']))
+        aereo_by_pp = {}
+        for _, r in df_fc.iterrows():
+            if r['Mode'] != 'Aéreo' or pd.isna(r['Pack Plan']) or pd.isna(r['PO']): continue
+            pp = int(r['Pack Plan'])
+            aereo_by_pp.setdefault(pp, set()).add(str(r['PO']))
+        UNIVERSO_COMPLIANCE["marítimo"]["by_pack_plan"] = {pp: len(s) for pp, s in marit_by_pp.items()}
+        UNIVERSO_COMPLIANCE["aéreo"]["by_pack_plan"] = {pp: len(s) for pp, s in aereo_by_pp.items()}
+    except Exception:
+        # Si la hoja "Incidencias" no existe en este Excel (algunos snapshots
+        # de prueba no la traen), la vista de Incidencias del dashboard queda
+        # simplemente vacía en vez de romper la carga completa de datos.
+        pass
+
+    # ══════════════════════════════════════════════════════════════
     # EXECUTE_RAW — row-level Confirmado data for the Execute tab's global filters,
     # KPI cards (Cold treatments / Senasa Attention / Booking counts) and the
     # PO-diferenciado-by-mode line chart.
@@ -416,6 +511,7 @@ def build_dashboard_data(xlsm_path):
     out = dict(SENASA=SENASA, WROWS=WROWS, AIR=AIR, AIRLINES=AIRLINES, FWKS=FWKS, WKL=WKL,
                KPI=KPI, EX=EX, DEST=DEST, LINEAS=LINEAS, PMI_PORTS=PMI_PORTS, FWKS_MODE=FWKS_MODE,
                EMBARQUES=EMBARQUES, TR_PROGRAM=TR_PROGRAM, PORTS_RAW=PORTS_RAW,
-               FORECAST_RAW=FORECAST_RAW, META=META, EXECUTE_RAW=EXECUTE_RAW)
+               FORECAST_RAW=FORECAST_RAW, META=META, EXECUTE_RAW=EXECUTE_RAW,
+               INCIDENCIAS=INCIDENCIAS, UNIVERSO_COMPLIANCE=UNIVERSO_COMPLIANCE)
 
     return out
