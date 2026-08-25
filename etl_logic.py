@@ -67,6 +67,7 @@ def build_dashboard_data(xlsm_path):
             "pod": r['POD'] if pd.notna(r['POD']) else "",
             "date": dstr(r['Loading Date']),
             "fcl": round(float(r['FCL']), 2),
+            "pallets": round(float(r['Pallets']), 1) if pd.notna(r['Pallets']) else 0.0,
         })
 
     # ══════════════════════════ AIR (aereo transport detail, confirmado) ══════════════════════════
@@ -433,6 +434,11 @@ def build_dashboard_data(xlsm_path):
                 criticidad = int(criticidad_raw) if pd.notna(criticidad_raw) and str(criticidad_raw).strip() != '' else None
             except (ValueError, TypeError):
                 criticidad = None
+            if match is None:
+                # No cruza con HORIZON_FORECAST de la temporada actual — es un ID_PO
+                # de una temporada pasada (el PO es la clave primaria contra Horizon,
+                # según se documentó). Se descarta por completo, no se muestra.
+                continue
             INCIDENCIAS.append({
                 "id_incident": int(r.iloc[4]),
                 "persona": r.iloc[3] if pd.notna(r.iloc[3]) else "",
@@ -444,14 +450,15 @@ def build_dashboard_data(xlsm_path):
                 "criticidad": criticidad,
                 "value_range": r.iloc[11] if pd.notna(r.iloc[11]) else "",
                 "comentario": r.iloc[12] if pd.notna(r.iloc[12]) else "",
-                # Enriquecido vía cruce (None si esta incidencia no tiene ID_PO válido o no matcheó):
-                "mode": (match['Mode'] if match is not None and pd.notna(match['Mode']) else None),
-                "pack_plan": (int(match['Pack Plan']) if match is not None and pd.notna(match['Pack Plan']) else None),
-                "packing": (match['Packing'] if match is not None and pd.notna(match['Packing']) else None),
-                "pod": (match['POD'] if match is not None and pd.notna(match['POD']) else None),
-                "fcl": (round(float(match['FCL']), 2) if match is not None and pd.notna(match['FCL']) else None),
-                "pallets": (round(float(match['Pallets']), 1) if match is not None and pd.notna(match['Pallets']) else None),
-                "matched": match is not None,
+                "mode": (match['Mode'] if pd.notna(match['Mode']) else None),
+                "instruction": (str(match['Instruction']) if pd.notna(match['Instruction']) else None),
+                "po": (str(match['PO']) if pd.notna(match['PO']) else None),
+                "pack_plan": (int(match['Pack Plan']) if pd.notna(match['Pack Plan']) else None),
+                "packing": (match['Packing'] if pd.notna(match['Packing']) else None),
+                "pod": (match['POD'] if pd.notna(match['POD']) else None),
+                "fcl": (round(float(match['FCL']), 2) if pd.notna(match['FCL']) else None),
+                "pallets": (round(float(match['Pallets']), 1) if pd.notna(match['Pallets']) else None),
+                "matched": True,
             })
 
         # Universo total (denominador de los % de compliance), separado por modo.
@@ -484,6 +491,32 @@ def build_dashboard_data(xlsm_path):
             aereo_by_pp.setdefault(pp, set()).add(str(r['PO']))
         UNIVERSO_COMPLIANCE["marítimo"]["by_pack_plan"] = {pp: len(s) for pp, s in marit_by_pp.items()}
         UNIVERSO_COMPLIANCE["aéreo"]["by_pack_plan"] = {pp: len(s) for pp, s in aereo_by_pp.items()}
+
+        # Universo COMBINADO por Pack Plan (todos los modos juntos), para el toggle
+        # Instruction/PO/FCL de "General Compliance". A diferencia de los universos
+        # separados por modo de arriba (que usan Instruction solo para Marítimo y PO
+        # solo para Aéreo), aquí cada métrica se cuenta de forma independiente sobre
+        # TODO el dataset, tal como pide el toggle: "Instruction" cuenta filas con
+        # Instruction no vacío, "PO" cuenta filas con PO no vacío, "FCL" suma FCL.
+        gen_instr_by_pp = {}
+        gen_po_by_pp = {}
+        gen_fcl_by_pp = {}
+        for _, r in df_fc.iterrows():
+            if pd.isna(r['Pack Plan']): continue
+            pp = int(r['Pack Plan'])
+            if pd.notna(r['Instruction']):
+                gen_instr_by_pp.setdefault(pp, set()).add(str(r['Instruction']))
+            if pd.notna(r['PO']):
+                gen_po_by_pp.setdefault(pp, set()).add(str(r['PO']))
+            gen_fcl_by_pp[pp] = gen_fcl_by_pp.get(pp, 0.0) + (float(r['FCL']) if pd.notna(r['FCL']) else 0.0)
+        UNIVERSO_COMPLIANCE["general"] = {
+            "by_pack_plan_instruction": {pp: len(s) for pp, s in gen_instr_by_pp.items()},
+            "by_pack_plan_po": {pp: len(s) for pp, s in gen_po_by_pp.items()},
+            "by_pack_plan_fcl": {pp: round(v, 2) for pp, v in gen_fcl_by_pp.items()},
+            "total_instruction": len(set().union(*gen_instr_by_pp.values())) if gen_instr_by_pp else 0,
+            "total_po": len(set().union(*gen_po_by_pp.values())) if gen_po_by_pp else 0,
+            "total_fcl": round(sum(gen_fcl_by_pp.values()), 2),
+        }
     except Exception:
         # Si la hoja "Incidencias" no existe en este Excel (algunos snapshots
         # de prueba no la traen), la vista de Incidencias del dashboard queda
@@ -508,10 +541,22 @@ def build_dashboard_data(xlsm_path):
             "senasa_att": r['SENASA Attention'] if pd.notna(r['SENASA Attention']) else "",
         })
 
+    # ══════════════════════════════════════════════════════════════
+    # HORIZON_RANGE — todos los Pack Plan y meses (Dispatch Date) que
+    # existen en HORIZON_FORECAST (Confirmado/Proyectado/Cancelado),
+    # sin importar si tienen o no una incidencia asociada. Lo usa la
+    # vista de Incidencias para dibujar el eje X completo (todos los
+    # Pack Plan / todos los meses), no solo los que tuvieron un evento.
+    # ══════════════════════════════════════════════════════════════
+    all_pack_plans = sorted(int(x) for x in df_fc['Pack Plan'].dropna().unique())
+    dispatch_dates_valid = df_fc['Dispatch Date'].dropna()
+    all_months = sorted(set(pd.Timestamp(d).strftime('%Y-%m') for d in dispatch_dates_valid if pd.notna(d)))
+    HORIZON_RANGE = {"pack_plans": all_pack_plans, "months": all_months}
+
     out = dict(SENASA=SENASA, WROWS=WROWS, AIR=AIR, AIRLINES=AIRLINES, FWKS=FWKS, WKL=WKL,
                KPI=KPI, EX=EX, DEST=DEST, LINEAS=LINEAS, PMI_PORTS=PMI_PORTS, FWKS_MODE=FWKS_MODE,
                EMBARQUES=EMBARQUES, TR_PROGRAM=TR_PROGRAM, PORTS_RAW=PORTS_RAW,
                FORECAST_RAW=FORECAST_RAW, META=META, EXECUTE_RAW=EXECUTE_RAW,
-               INCIDENCIAS=INCIDENCIAS, UNIVERSO_COMPLIANCE=UNIVERSO_COMPLIANCE)
+               INCIDENCIAS=INCIDENCIAS, UNIVERSO_COMPLIANCE=UNIVERSO_COMPLIANCE, HORIZON_RANGE=HORIZON_RANGE)
 
     return out

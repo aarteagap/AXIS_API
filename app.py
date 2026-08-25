@@ -69,7 +69,10 @@ def push_to_supabase(data_dict, updater_name=""):
             "updated_by": who,
         })
 
-    r = requests.post(f"{endpoint}?on_conflict=dataset_name", headers=headers, json=rows)
+    try:
+        r = requests.post(f"{endpoint}?on_conflict=dataset_name", headers=headers, json=rows, timeout=30)
+    except requests.exceptions.RequestException as e:
+        return False, f"Supabase request failed/timed out: {e}"
     if r.status_code not in (200, 201):
         return False, f"Supabase rejected the update (status {r.status_code}): {r.text[:400]}"
     return True, f"{len(rows)} datasets updated"
@@ -91,7 +94,10 @@ def push_to_github(data_dict, updater_name=""):
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}"
 
     # 1. Get current SHA (required by GitHub to update an existing file)
-    r = requests.get(api_url, headers=github_headers(), params={"ref": GITHUB_BRANCH})
+    try:
+        r = requests.get(api_url, headers=github_headers(), params={"ref": GITHUB_BRANCH}, timeout=20)
+    except requests.exceptions.RequestException as e:
+        return False, f"GitHub GET request failed/timed out: {e}"
     if r.status_code != 200:
         return False, f"Could not read current file (status {r.status_code}): {r.text[:300]}"
     sha = r.json().get("sha")
@@ -108,7 +114,10 @@ def push_to_github(data_dict, updater_name=""):
         "committer": {"name": who, "email": "athena-dashboard@no-reply.local"},
         "author": {"name": who, "email": "athena-dashboard@no-reply.local"},
     }
-    r2 = requests.put(api_url, headers=github_headers(), json=payload)
+    try:
+        r2 = requests.put(api_url, headers=github_headers(), json=payload, timeout=30)
+    except requests.exceptions.RequestException as e:
+        return False, f"GitHub PUT request failed/timed out: {e}"
     if r2.status_code not in (200, 201):
         return False, f"GitHub rejected the update (status {r2.status_code}): {r2.text[:300]}"
     return True, r2.json().get("commit", {}).get("sha", "")
