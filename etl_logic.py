@@ -1,5 +1,16 @@
 import pandas as pd, numpy as np, json, re
 
+# ══════════════════════════════════════════════════════════════
+# Bandera temporal: en False, la vista de Incidencias queda
+# completamente desactivada (no se lee la hoja "Incidencias" del
+# Excel, no se publica INCIDENCIAS/UNIVERSO_COMPLIANCE/HORIZON_RANGE
+# a Supabase/GitHub). Se aísla así mientras se investiga el error
+# "Failed to fetch" en /publish, para no arriesgar la carga de
+# quienes ya usan el dashboard hoy. Cuando se confirme que Incidencias
+# no era la causa (o se corrija lo que sea), cambiar a True.
+# ══════════════════════════════════════════════════════════════
+ENABLE_INCIDENCIAS = False
+
 
 def build_dashboard_data(xlsm_path):
     import pandas as pd, numpy as np, json, re
@@ -411,113 +422,114 @@ def build_dashboard_data(xlsm_path):
     INCIDENCIAS = []
     UNIVERSO_COMPLIANCE = {"marítimo": {"instructions": 0, "fcl_total": 0.0, "pallets_total": 0.0},
                             "aéreo": {"pos": 0, "fcl_total": 0.0, "pallets_total": 0.0}}
-    try:
-        inc_df = pd.read_excel(xlsm_path, sheet_name='Incidencias', engine='openpyxl', header=0)
-        inc_df = inc_df[inc_df.iloc[:, 4].notna() & inc_df.iloc[:, 0].notna()].copy()  # ID_Incident y Filial no vacíos
+    if ENABLE_INCIDENCIAS:
+      try:
+          inc_df = pd.read_excel(xlsm_path, sheet_name='Incidencias', engine='openpyxl', header=0)
+          inc_df = inc_df[inc_df.iloc[:, 4].notna() & inc_df.iloc[:, 0].notna()].copy()  # ID_Incident y Filial no vacíos
 
-        # Índice de cruce: cada Instruction/PO de HORIZON_FORECAST (Confirmado/Proyectado/Cancelado)
-        # apunta a su fila, indexado por ambos estilos de identificador ya que en la
-        # práctica "ID_PO" de Incidencias puede matchear cualquiera de los dos.
-        fc_index = {}
-        for _, r in df_fc.iterrows():
-            instr = str(r['Instruction']) if pd.notna(r['Instruction']) else None
-            po = str(r['PO']) if pd.notna(r['PO']) else None
-            if instr: fc_index[instr] = r
-            if po: fc_index[po] = r
+          # Índice de cruce: cada Instruction/PO de HORIZON_FORECAST (Confirmado/Proyectado/Cancelado)
+          # apunta a su fila, indexado por ambos estilos de identificador ya que en la
+          # práctica "ID_PO" de Incidencias puede matchear cualquiera de los dos.
+          fc_index = {}
+          for _, r in df_fc.iterrows():
+              instr = str(r['Instruction']) if pd.notna(r['Instruction']) else None
+              po = str(r['PO']) if pd.notna(r['PO']) else None
+              if instr: fc_index[instr] = r
+              if po: fc_index[po] = r
 
-        for _, r in inc_df.iterrows():
-            id_po = r.iloc[2]
-            id_po_str = str(id_po).strip() if pd.notna(id_po) and str(id_po).strip() not in ('', 'Total') else None
-            match = fc_index.get(id_po_str) if id_po_str else None
-            criticidad_raw = r.iloc[10]
-            try:
-                criticidad = int(criticidad_raw) if pd.notna(criticidad_raw) and str(criticidad_raw).strip() != '' else None
-            except (ValueError, TypeError):
-                criticidad = None
-            if match is None:
-                # No cruza con HORIZON_FORECAST de la temporada actual — es un ID_PO
-                # de una temporada pasada (el PO es la clave primaria contra Horizon,
-                # según se documentó). Se descarta por completo, no se muestra.
-                continue
-            INCIDENCIAS.append({
-                "id_incident": int(r.iloc[4]),
-                "persona": r.iloc[3] if pd.notna(r.iloc[3]) else "",
-                "id_po": id_po_str or "",
-                "dispatch_date": dstr_ddmmyyyy(r.iloc[6]) if pd.notna(r.iloc[6]) else "",
-                "t_supplier": r.iloc[7] if pd.notna(r.iloc[7]) else "",
-                "supplier": r.iloc[8] if pd.notna(r.iloc[8]) else "",
-                "incident": r.iloc[9] if pd.notna(r.iloc[9]) else "",
-                "criticidad": criticidad,
-                "value_range": r.iloc[11] if pd.notna(r.iloc[11]) else "",
-                "comentario": r.iloc[12] if pd.notna(r.iloc[12]) else "",
-                "mode": (match['Mode'] if pd.notna(match['Mode']) else None),
-                "instruction": (str(match['Instruction']) if pd.notna(match['Instruction']) else None),
-                "po": (str(match['PO']) if pd.notna(match['PO']) else None),
-                "pack_plan": (int(match['Pack Plan']) if pd.notna(match['Pack Plan']) else None),
-                "packing": (match['Packing'] if pd.notna(match['Packing']) else None),
-                "pod": (match['POD'] if pd.notna(match['POD']) else None),
-                "fcl": (round(float(match['FCL']), 2) if pd.notna(match['FCL']) else None),
-                "pallets": (round(float(match['Pallets']), 1) if pd.notna(match['Pallets']) else None),
-                "matched": True,
-            })
+          for _, r in inc_df.iterrows():
+              id_po = r.iloc[2]
+              id_po_str = str(id_po).strip() if pd.notna(id_po) and str(id_po).strip() not in ('', 'Total') else None
+              match = fc_index.get(id_po_str) if id_po_str else None
+              criticidad_raw = r.iloc[10]
+              try:
+                  criticidad = int(criticidad_raw) if pd.notna(criticidad_raw) and str(criticidad_raw).strip() != '' else None
+              except (ValueError, TypeError):
+                  criticidad = None
+              if match is None:
+                  # No cruza con HORIZON_FORECAST de la temporada actual — es un ID_PO
+                  # de una temporada pasada (el PO es la clave primaria contra Horizon,
+                  # según se documentó). Se descarta por completo, no se muestra.
+                  continue
+              INCIDENCIAS.append({
+                  "id_incident": int(r.iloc[4]),
+                  "persona": r.iloc[3] if pd.notna(r.iloc[3]) else "",
+                  "id_po": id_po_str or "",
+                  "dispatch_date": dstr_ddmmyyyy(r.iloc[6]) if pd.notna(r.iloc[6]) else "",
+                  "t_supplier": r.iloc[7] if pd.notna(r.iloc[7]) else "",
+                  "supplier": r.iloc[8] if pd.notna(r.iloc[8]) else "",
+                  "incident": r.iloc[9] if pd.notna(r.iloc[9]) else "",
+                  "criticidad": criticidad,
+                  "value_range": r.iloc[11] if pd.notna(r.iloc[11]) else "",
+                  "comentario": r.iloc[12] if pd.notna(r.iloc[12]) else "",
+                  "mode": (match['Mode'] if pd.notna(match['Mode']) else None),
+                  "instruction": (str(match['Instruction']) if pd.notna(match['Instruction']) else None),
+                  "po": (str(match['PO']) if pd.notna(match['PO']) else None),
+                  "pack_plan": (int(match['Pack Plan']) if pd.notna(match['Pack Plan']) else None),
+                  "packing": (match['Packing'] if pd.notna(match['Packing']) else None),
+                  "pod": (match['POD'] if pd.notna(match['POD']) else None),
+                  "fcl": (round(float(match['FCL']), 2) if pd.notna(match['FCL']) else None),
+                  "pallets": (round(float(match['Pallets']), 1) if pd.notna(match['Pallets']) else None),
+                  "matched": True,
+              })
 
-        # Universo total (denominador de los % de compliance), separado por modo.
-        marit_ids = set()
-        for _, r in df_fc.iterrows():
-            if r['Mode'] != 'Marítimo': continue
-            if pd.notna(r['Instruction']): marit_ids.add(str(r['Instruction']))
-            if pd.notna(r['PO']): marit_ids.add(str(r['PO']))
-        aereo_pos = set(str(r['PO']) for _, r in df_fc.iterrows() if r['Mode']=='Aéreo' and pd.notna(r['PO']))
+          # Universo total (denominador de los % de compliance), separado por modo.
+          marit_ids = set()
+          for _, r in df_fc.iterrows():
+              if r['Mode'] != 'Marítimo': continue
+              if pd.notna(r['Instruction']): marit_ids.add(str(r['Instruction']))
+              if pd.notna(r['PO']): marit_ids.add(str(r['PO']))
+          aereo_pos = set(str(r['PO']) for _, r in df_fc.iterrows() if r['Mode']=='Aéreo' and pd.notna(r['PO']))
 
-        UNIVERSO_COMPLIANCE["marítimo"]["instructions"] = len(marit_ids)
-        UNIVERSO_COMPLIANCE["aéreo"]["pos"] = len(aereo_pos)
-        UNIVERSO_COMPLIANCE["marítimo"]["fcl_total"] = round(float(df_fc[df_fc['Mode']=='Marítimo']['FCL'].sum()), 2)
-        UNIVERSO_COMPLIANCE["aéreo"]["fcl_total"] = round(float(df_fc[df_fc['Mode']=='Aéreo']['FCL'].sum()), 2)
-        UNIVERSO_COMPLIANCE["marítimo"]["pallets_total"] = round(float(df_fc[df_fc['Mode']=='Marítimo']['Pallets'].sum()), 1)
-        UNIVERSO_COMPLIANCE["aéreo"]["pallets_total"] = round(float(df_fc[df_fc['Mode']=='Aéreo']['Pallets'].sum()), 1)
+          UNIVERSO_COMPLIANCE["marítimo"]["instructions"] = len(marit_ids)
+          UNIVERSO_COMPLIANCE["aéreo"]["pos"] = len(aereo_pos)
+          UNIVERSO_COMPLIANCE["marítimo"]["fcl_total"] = round(float(df_fc[df_fc['Mode']=='Marítimo']['FCL'].sum()), 2)
+          UNIVERSO_COMPLIANCE["aéreo"]["fcl_total"] = round(float(df_fc[df_fc['Mode']=='Aéreo']['FCL'].sum()), 2)
+          UNIVERSO_COMPLIANCE["marítimo"]["pallets_total"] = round(float(df_fc[df_fc['Mode']=='Marítimo']['Pallets'].sum()), 1)
+          UNIVERSO_COMPLIANCE["aéreo"]["pallets_total"] = round(float(df_fc[df_fc['Mode']=='Aéreo']['Pallets'].sum()), 1)
 
-        # Universo por Pack Plan (para la curva histórica de compliance semanal).
-        marit_by_pp = {}
-        for _, r in df_fc.iterrows():
-            if r['Mode'] != 'Marítimo' or pd.isna(r['Pack Plan']): continue
-            pp = int(r['Pack Plan'])
-            s = marit_by_pp.setdefault(pp, set())
-            if pd.notna(r['Instruction']): s.add(str(r['Instruction']))
-            if pd.notna(r['PO']): s.add(str(r['PO']))
-        aereo_by_pp = {}
-        for _, r in df_fc.iterrows():
-            if r['Mode'] != 'Aéreo' or pd.isna(r['Pack Plan']) or pd.isna(r['PO']): continue
-            pp = int(r['Pack Plan'])
-            aereo_by_pp.setdefault(pp, set()).add(str(r['PO']))
-        UNIVERSO_COMPLIANCE["marítimo"]["by_pack_plan"] = {pp: len(s) for pp, s in marit_by_pp.items()}
-        UNIVERSO_COMPLIANCE["aéreo"]["by_pack_plan"] = {pp: len(s) for pp, s in aereo_by_pp.items()}
+          # Universo por Pack Plan (para la curva histórica de compliance semanal).
+          marit_by_pp = {}
+          for _, r in df_fc.iterrows():
+              if r['Mode'] != 'Marítimo' or pd.isna(r['Pack Plan']): continue
+              pp = int(r['Pack Plan'])
+              s = marit_by_pp.setdefault(pp, set())
+              if pd.notna(r['Instruction']): s.add(str(r['Instruction']))
+              if pd.notna(r['PO']): s.add(str(r['PO']))
+          aereo_by_pp = {}
+          for _, r in df_fc.iterrows():
+              if r['Mode'] != 'Aéreo' or pd.isna(r['Pack Plan']) or pd.isna(r['PO']): continue
+              pp = int(r['Pack Plan'])
+              aereo_by_pp.setdefault(pp, set()).add(str(r['PO']))
+          UNIVERSO_COMPLIANCE["marítimo"]["by_pack_plan"] = {pp: len(s) for pp, s in marit_by_pp.items()}
+          UNIVERSO_COMPLIANCE["aéreo"]["by_pack_plan"] = {pp: len(s) for pp, s in aereo_by_pp.items()}
 
-        # Universo COMBINADO por Pack Plan (todos los modos juntos), para el toggle
-        # Instruction/PO/FCL de "General Compliance". A diferencia de los universos
-        # separados por modo de arriba (que usan Instruction solo para Marítimo y PO
-        # solo para Aéreo), aquí cada métrica se cuenta de forma independiente sobre
-        # TODO el dataset, tal como pide el toggle: "Instruction" cuenta filas con
-        # Instruction no vacío, "PO" cuenta filas con PO no vacío, "FCL" suma FCL.
-        gen_instr_by_pp = {}
-        gen_po_by_pp = {}
-        gen_fcl_by_pp = {}
-        for _, r in df_fc.iterrows():
-            if pd.isna(r['Pack Plan']): continue
-            pp = int(r['Pack Plan'])
-            if pd.notna(r['Instruction']):
-                gen_instr_by_pp.setdefault(pp, set()).add(str(r['Instruction']))
-            if pd.notna(r['PO']):
-                gen_po_by_pp.setdefault(pp, set()).add(str(r['PO']))
-            gen_fcl_by_pp[pp] = gen_fcl_by_pp.get(pp, 0.0) + (float(r['FCL']) if pd.notna(r['FCL']) else 0.0)
-        UNIVERSO_COMPLIANCE["general"] = {
-            "by_pack_plan_instruction": {pp: len(s) for pp, s in gen_instr_by_pp.items()},
-            "by_pack_plan_po": {pp: len(s) for pp, s in gen_po_by_pp.items()},
-            "by_pack_plan_fcl": {pp: round(v, 2) for pp, v in gen_fcl_by_pp.items()},
-            "total_instruction": len(set().union(*gen_instr_by_pp.values())) if gen_instr_by_pp else 0,
-            "total_po": len(set().union(*gen_po_by_pp.values())) if gen_po_by_pp else 0,
-            "total_fcl": round(sum(gen_fcl_by_pp.values()), 2),
-        }
-    except Exception:
+          # Universo COMBINADO por Pack Plan (todos los modos juntos), para el toggle
+          # Instruction/PO/FCL de "General Compliance". A diferencia de los universos
+          # separados por modo de arriba (que usan Instruction solo para Marítimo y PO
+          # solo para Aéreo), aquí cada métrica se cuenta de forma independiente sobre
+          # TODO el dataset, tal como pide el toggle: "Instruction" cuenta filas con
+          # Instruction no vacío, "PO" cuenta filas con PO no vacío, "FCL" suma FCL.
+          gen_instr_by_pp = {}
+          gen_po_by_pp = {}
+          gen_fcl_by_pp = {}
+          for _, r in df_fc.iterrows():
+              if pd.isna(r['Pack Plan']): continue
+              pp = int(r['Pack Plan'])
+              if pd.notna(r['Instruction']):
+                  gen_instr_by_pp.setdefault(pp, set()).add(str(r['Instruction']))
+              if pd.notna(r['PO']):
+                  gen_po_by_pp.setdefault(pp, set()).add(str(r['PO']))
+              gen_fcl_by_pp[pp] = gen_fcl_by_pp.get(pp, 0.0) + (float(r['FCL']) if pd.notna(r['FCL']) else 0.0)
+          UNIVERSO_COMPLIANCE["general"] = {
+              "by_pack_plan_instruction": {pp: len(s) for pp, s in gen_instr_by_pp.items()},
+              "by_pack_plan_po": {pp: len(s) for pp, s in gen_po_by_pp.items()},
+              "by_pack_plan_fcl": {pp: round(v, 2) for pp, v in gen_fcl_by_pp.items()},
+              "total_instruction": len(set().union(*gen_instr_by_pp.values())) if gen_instr_by_pp else 0,
+              "total_po": len(set().union(*gen_po_by_pp.values())) if gen_po_by_pp else 0,
+              "total_fcl": round(sum(gen_fcl_by_pp.values()), 2),
+          }
+      except Exception:
         # Si la hoja "Incidencias" no existe en este Excel (algunos snapshots
         # de prueba no la traen), la vista de Incidencias del dashboard queda
         # simplemente vacía en vez de romper la carga completa de datos.
