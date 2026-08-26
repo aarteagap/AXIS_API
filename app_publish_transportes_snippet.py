@@ -57,6 +57,26 @@ def _upsert_transport_data(datasets: dict, updated_by: str = "publish-transporte
     return resp
 
 
+def _fetch_line_by_instruction():
+    """Trae el mapa Instruction -> Line (naviera) publicado por /publish
+    (el AXIS principal, fuente autoritativa: así se creó el requerimiento
+    en Horizon) desde la tabla dashboard_data. Si Supabase no responde o
+    el AXIS principal no se ha publicado todavía, devuelve {} — el ETL de
+    Transportes cae de vuelta a lo que haya en la columna 'Línea Naviera'
+    del propio Excel de transportes (llenada a mano por el proveedor)."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return {}
+    url = f"{SUPABASE_URL}/rest/v1/dashboard_data"
+    headers = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        r = requests.get(url, headers=headers, params={"dataset_name": "eq.LINE_BY_INSTRUCTION", "select": "payload"}, timeout=15)
+        r.raise_for_status()
+        rows = r.json()
+        return rows[0]["payload"] if rows else {}
+    except Exception:
+        return {}
+
+
 def _commit_excel_to_github(file_bytes: bytes, filename: str = "TABLEAU_CONSOLIDADO_DE_TRANSPORTE_2627.xlsx"):
     """Sube el Excel al repo del dashboard, igual que hace /publish con el
     Excel de AXIS — deja rastro de qué archivo generó qué datos."""
@@ -101,8 +121,9 @@ def register_publish_transportes(app):
         with open(tmp_path, "wb") as out:
             out.write(file_bytes)
 
+        line_by_instruction = _fetch_line_by_instruction()
         try:
-            datasets = process_transportes(tmp_path)
+            datasets = process_transportes(tmp_path, line_by_instruction=line_by_instruction)
         except Exception as e:
             return jsonify({"error": f"Error procesando el Excel: {e}"}), 422
 

@@ -68,37 +68,19 @@ def _clean_str(v):
         return v if v and v.upper() != '#VALUE!' else None
     return v
 
-def _load_naviera_map(wb):
-    """La columna 'Línea Naviera' de CONSOLIDADO 2526 viene vacía en la
-    práctica (el Excel no la llena ahí) — la naviera real vive en la hoja
-    'MARÍTIMOS' (columna 'Línea'), cruzable por Instruction. Se usa como
-    respaldo cuando la columna directa no trae dato."""
-    if 'MARÍTIMOS' not in wb.sheetnames:
-        return {}
-    ws = wb['MARÍTIMOS']
-    rows = list(ws.iter_rows(min_row=1, values_only=True))
-    if not rows:
-        return {}
-    headers = rows[0]
-    idx = {h: i for i, h in enumerate(headers) if h}
-    i_instr, i_line = idx.get('Instruction'), idx.get('Línea')
-    if i_instr is None or i_line is None:
-        return {}
-    out = {}
-    for r in rows[1:]:
-        instr, line = r[i_instr], r[i_line]
-        if instr and line:
-            out[str(instr).strip()] = line
-    return out
-
-
-def load_rows(xlsx_path):
+def load_rows(xlsx_path, line_by_instruction=None):
+    """line_by_instruction: mapa opcional Instruction -> Line, tal como se
+    creó el requerimiento en Horizon (fuente autoritativa: 1 Instruction =
+    1 camión, y aquí solo aplica a Marítimo). La columna 'Línea Naviera' de
+    este Excel la vuelve a escribir a mano el proveedor al llenarlo (no
+    siempre confiable, y en la práctica muchas veces viene vacía), así que
+    se usa como respaldo cuando el proveedor no la llenó."""
+    line_by_instruction = line_by_instruction or {}
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb[SHEET_NAME]
     rows = list(ws.iter_rows(min_row=1, values_only=True))
     headers = rows[0]
     idx = {h: i for i, h in enumerate(headers) if h}
-    naviera_map = _load_naviera_map(wb)
 
     def val(r, name):
         i = idx.get(name)
@@ -114,7 +96,7 @@ def load_rows(xlsx_path):
         sede = sede_raw.title() if sede_raw else sede_raw  # normaliza "CHAO" -> "Chao"
 
         instruction = _clean_str(val(r, 'Instrucción'))
-        naviera = _clean_str(val(r, 'Línea Naviera')) or (naviera_map.get(instruction) if instruction else None)
+        naviera = _clean_str(val(r, 'Línea Naviera')) or (line_by_instruction.get(instruction) if instruction else None)
 
         ingreso_packing = val(r, 'Ingreso Packing')
         salida_packing = val(r, 'Salida Packing')
@@ -289,8 +271,8 @@ def build_datasets(rows):
     }
 
 
-def process(xlsx_path):
-    rows = load_rows(xlsx_path)
+def process(xlsx_path, line_by_instruction=None):
+    rows = load_rows(xlsx_path, line_by_instruction=line_by_instruction)
     return build_datasets(rows)
 
 

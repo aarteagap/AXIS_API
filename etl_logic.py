@@ -637,10 +637,26 @@ def build_dashboard_data(xlsm_path):
     all_months = sorted(set(pd.Timestamp(d).strftime('%Y-%m') for d in dispatch_dates_valid if pd.notna(d)))
     HORIZON_RANGE = {"pack_plans": all_pack_plans, "months": all_months}
 
+    # ══════════════════════════════════════════════════════════════
+    # LINE_BY_INSTRUCTION — Instruction -> Line (naviera) para transportes
+    # Marítimo, tal como se creó el requerimiento en Horizon (fuente
+    # autoritativa: 1 Instruction = 1 camión). El Excel de Control de
+    # Transportes lo vuelve a escribir a mano al llenarlo el proveedor —no
+    # siempre confiable, y a veces viene vacío— así que /publish-transportes
+    # cruza por este mapa en vez de confiar en lo que el proveedor tipeó.
+    # Solo Marítimo: Aéreo/Terrestre todavía no se han definido para este cruce.
+    # ══════════════════════════════════════════════════════════════
+    mar = df[df['Mode'] == 'Marítimo']
+    LINE_BY_INSTRUCTION = {
+        str(r['Instruction']).strip(): r['Line']
+        for _, r in mar.iterrows() if pd.notna(r['Instruction']) and pd.notna(r['Line'])
+    }
+
     out = dict(SENASA=SENASA, WROWS=WROWS, AIR=AIR, AIRLINES=AIRLINES, FWKS=FWKS, WKL=WKL,
                KPI=KPI, EX=EX, DEST=DEST, LINEAS=LINEAS, PMI_PORTS=PMI_PORTS, FWKS_MODE=FWKS_MODE,
                EMBARQUES=EMBARQUES, TR_PROGRAM=TR_PROGRAM, PORTS_RAW=PORTS_RAW,
                FORECAST_RAW=FORECAST_RAW, META=META, EXECUTE_RAW=EXECUTE_RAW,
-               INCIDENCIAS=INCIDENCIAS, UNIVERSO_COMPLIANCE=UNIVERSO_COMPLIANCE, HORIZON_RANGE=HORIZON_RANGE)
+               INCIDENCIAS=INCIDENCIAS, UNIVERSO_COMPLIANCE=UNIVERSO_COMPLIANCE, HORIZON_RANGE=HORIZON_RANGE,
+               LINE_BY_INSTRUCTION=LINE_BY_INSTRUCTION)
 
     return out
