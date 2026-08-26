@@ -14,7 +14,13 @@ ENABLE_INCIDENCIAS = True
 
 def build_dashboard_data(xlsm_path):
     import pandas as pd, numpy as np, json, re
-    df = pd.read_excel(xlsm_path, sheet_name='HORIZON_FORECAST', engine='openpyxl')
+    # Un solo ExcelFile para todo el archivo: pd.read_excel(path, ...) llamado
+    # más de una vez re-parsea el .xlsm completo desde cero cada vez (aquí se
+    # leían HORIZON_FORECAST, Incidencias, y además un load_workbook aparte
+    # para META — 3 parses del mismo archivo). En Render (plan free, 512MB)
+    # eso fue justo lo que tumbó el worker con SIGKILL/OOM durante /publish.
+    xls = pd.ExcelFile(xlsm_path, engine='openpyxl')
+    df = pd.read_excel(xls, sheet_name='HORIZON_FORECAST')
     df = df[~df['Status'].isin(['Maquinaria', 'Traslado'])].copy()
     df['FCL'] = pd.to_numeric(df['FCL'], errors='coerce').fillna(0)
     df['Pack Plan'] = pd.to_numeric(df['Pack Plan'], errors='coerce')
@@ -396,9 +402,8 @@ def build_dashboard_data(xlsm_path):
     # META — publish metadata (when the source Excel was last modified)
     # ══════════════════════════════════════════════════════════════
     try:
-        from openpyxl import load_workbook as _load_wb_meta
         from datetime import timezone as _tz
-        _wb_props = _load_wb_meta(xlsm_path, read_only=True).properties
+        _wb_props = xls.book.properties  # reusa el workbook ya cargado arriba, no abre una tercera copia
         if _wb_props.modified:
             _dt = _wb_props.modified
             # OOXML core properties store dates in UTC; openpyxl returns a naive datetime for
@@ -454,7 +459,7 @@ def build_dashboard_data(xlsm_path):
                             "terrestre": {"instructions": 0, "fcl_total": 0.0, "pallets_total": 0.0}}
     if ENABLE_INCIDENCIAS:
       try:
-        inc_df = pd.read_excel(xlsm_path, sheet_name='Incidencias', engine='openpyxl', header=0)
+        inc_df = pd.read_excel(xls, sheet_name='Incidencias', header=0)
         # Solo las primeras 14 columnas son datos reales de incidencias (el resto,
         # a partir de la col. 14, son tablas auxiliares/listas de referencia que
         # comparten la misma hoja). Nos quedamos solo con las que usamos, por
@@ -661,4 +666,5 @@ def build_dashboard_data(xlsm_path):
                INCIDENCIAS=INCIDENCIAS, UNIVERSO_COMPLIANCE=UNIVERSO_COMPLIANCE, HORIZON_RANGE=HORIZON_RANGE,
                LINE_BY_INSTRUCTION=LINE_BY_INSTRUCTION)
 
+    xls.close()  # libera el workbook (y su memoria) apenas termina de usarse, sin esperar al garbage collector
     return out
