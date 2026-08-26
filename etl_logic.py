@@ -466,6 +466,10 @@ def build_dashboard_data(xlsm_path):
         fc_index = {}
         marit_ids, aereo_pos, terr_ids = set(), set(), set()
         marit_by_pp, aereo_by_pp, terr_by_pp = {}, {}, {}
+        # by_line — universo (denominador) de "Fulfillment of the Assignment" por proveedor:
+        # cuántas Instructions/PO distintas tiene asignadas cada Line (naviera/aerolínea/
+        # transportista), para comparar contra cuántas de esas tuvieron incidencia.
+        marit_by_line, aereo_by_line, terr_by_line = {}, {}, {}
         marit_fcl_total, aereo_fcl_total, terr_fcl_total = 0.0, 0.0, 0.0
         marit_pallets_total, aereo_pallets_total, terr_pallets_total = 0.0, 0.0, 0.0
         gen_instr_by_pp, gen_po_by_pp, gen_fcl_by_pp = {}, {}, {}
@@ -479,6 +483,7 @@ def build_dashboard_data(xlsm_path):
             if po: fc_index[po] = r
 
             mode = r['Mode'] if pd.notna(r['Mode']) else None
+            line = str(r['Line']) if pd.notna(r['Line']) else None
             fcl = float(r['FCL']) if pd.notna(r['FCL']) else 0.0
             pallets = float(r['Pallets']) if pd.notna(r['Pallets']) else 0.0
             pp = int(r['Pack Plan']) if pd.notna(r['Pack Plan']) else None
@@ -489,12 +494,16 @@ def build_dashboard_data(xlsm_path):
                 marit_pallets_total += pallets
                 if pp is not None and instr:
                     marit_by_pp.setdefault(pp, set()).add(instr)
+                if line and instr:
+                    marit_by_line.setdefault(line, set()).add(instr)
             elif mode == 'Aéreo':
                 if po: aereo_pos.add(po)
                 aereo_fcl_total += fcl
                 aereo_pallets_total += pallets
                 if pp is not None and po:
                     aereo_by_pp.setdefault(pp, set()).add(po)
+                if line and po:
+                    aereo_by_line.setdefault(line, set()).add(po)
             elif mode == 'Terrestre':
                 # Igual criterio que Marítimo: 1 Instruction = 1 camión = 1 pedido.
                 if instr: terr_ids.add(instr)
@@ -502,6 +511,8 @@ def build_dashboard_data(xlsm_path):
                 terr_pallets_total += pallets
                 if pp is not None and instr:
                     terr_by_pp.setdefault(pp, set()).add(instr)
+                if line and instr:
+                    terr_by_line.setdefault(line, set()).add(instr)
 
             if instr: gen_instr_all.add(instr)
             if po: gen_po_all.add(po)
@@ -545,6 +556,7 @@ def build_dashboard_data(xlsm_path):
                 "value_range": str(r['Value']) if pd.notna(r['Value']) else "",
                 "comentario": str(r['Comentario']) if pd.notna(r['Comentario']) else "",
                 "mode": (match['Mode'] if pd.notna(match['Mode']) else None),
+                "line": (str(match['Line']) if pd.notna(match['Line']) else None),
                 "instruction": (str(match['Instruction']) if pd.notna(match['Instruction']) else None),
                 "po": (str(match['PO']) if pd.notna(match['PO']) else None),
                 "pack_plan": (int(match['Pack Plan']) if pd.notna(match['Pack Plan']) else None),
@@ -561,18 +573,21 @@ def build_dashboard_data(xlsm_path):
             "fcl_total": round(marit_fcl_total, 2),
             "pallets_total": round(marit_pallets_total, 1),
             "by_pack_plan": {pp: len(s) for pp, s in marit_by_pp.items()},
+            "by_line": {line: len(s) for line, s in marit_by_line.items()},
         }
         UNIVERSO_COMPLIANCE["aéreo"] = {
             "pos": len(aereo_pos),
             "fcl_total": round(aereo_fcl_total, 2),
             "pallets_total": round(aereo_pallets_total, 1),
             "by_pack_plan": {pp: len(s) for pp, s in aereo_by_pp.items()},
+            "by_line": {line: len(s) for line, s in aereo_by_line.items()},
         }
         UNIVERSO_COMPLIANCE["terrestre"] = {
             "instructions": len(terr_ids),
             "fcl_total": round(terr_fcl_total, 2),
             "pallets_total": round(terr_pallets_total, 1),
             "by_pack_plan": {pp: len(s) for pp, s in terr_by_pp.items()},
+            "by_line": {line: len(s) for line, s in terr_by_line.items()},
         }
         UNIVERSO_COMPLIANCE["general"] = {
             "by_pack_plan_instruction": {pp: len(s) for pp, s in gen_instr_by_pp.items()},
