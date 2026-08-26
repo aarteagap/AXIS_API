@@ -358,6 +358,7 @@ def build_dashboard_data(xlsm_path):
             "mode": r['Mode'] if pd.notna(r['Mode']) else "",
             "po": str(r['PO']) if pd.notna(r['PO']) else "",
             "line": r['Line'] if pd.notna(r['Line']) else "",
+            "transport_operator": r['Transport Operator'] if pd.notna(r['Transport Operator']) else "",
         })
 
     # ══════════════════════════════════════════════════════════════
@@ -384,6 +385,9 @@ def build_dashboard_data(xlsm_path):
             "pallets": round(float(r['Pallets']), 1) if pd.notna(r['Pallets']) else 0.0,
             "is_pre": bool(is_pre), "is_add": bool(is_add), "is_expo": bool(is_expo),
             "is_exadd": bool(is_exadd), "is_airadd": bool(is_airadd),
+            "line": r['Line'] if pd.notna(r['Line']) else "",
+            "transport_operator": r['Transport Operator'] if pd.notna(r['Transport Operator']) else "",
+            "market": r['Market'] if pd.notna(r['Market']) else "",
         })
 
     # ══════════════════════════════════════════════════════════════
