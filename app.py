@@ -73,6 +73,12 @@ def push_to_supabase(data_dict, updater_name=""):
         r = requests.post(f"{endpoint}?on_conflict=dataset_name", headers=headers, json=rows, timeout=30)
     except requests.exceptions.RequestException as e:
         return False, f"Supabase request failed/timed out: {e}"
+    except (TypeError, ValueError) as e:
+        # json=rows serializa el payload antes de abrir la conexión — un valor no
+        # serializable (p.ej. un numpy.int64/Timestamp colado desde el Excel) revienta
+        # aquí, no como RequestException. Sin este catch, /publish devolvía un 500 crudo
+        # en vez de reportar limpiamente que Supabase (la fuente real del dashboard) falló.
+        return False, f"Payload no serializable a JSON: {e}"
     if r.status_code not in (200, 201):
         return False, f"Supabase rejected the update (status {r.status_code}): {r.text[:400]}"
     return True, f"{len(rows)} datasets updated"

@@ -529,15 +529,21 @@ def build_dashboard_data(xlsm_path):
 
             INCIDENCIAS.append({
                 "id_incident": int(r['ID_Incident']),
-                "persona": r['PERSONA'] if pd.notna(r['PERSONA']) else "",
+                # str(...) explícito en estos campos: a diferencia de las columnas
+                # estructuradas de HORIZON_FORECAST, la hoja "Incidencias" se llena
+                # a mano y puede traer un número o una fecha en una columna de texto
+                # (p.ej. "Value" o "PERSONA"). Sin el cast, ese valor llega como
+                # numpy.int64/Timestamp, que requests.post(json=...) no sabe serializar
+                # y revienta la publicación entera a Supabase con un 500 no controlado.
+                "persona": str(r['PERSONA']) if pd.notna(r['PERSONA']) else "",
                 "id_po": id_po_str or "",
                 "dispatch_date": dstr_ddmmyyyy(r['Dispatch Date']) if pd.notna(r['Dispatch Date']) else "",
-                "t_supplier": r['T_Supplier'] if pd.notna(r['T_Supplier']) else "",
-                "supplier": r['Supplier'] if pd.notna(r['Supplier']) else "",
-                "incident": r['Incident'] if pd.notna(r['Incident']) else "",
+                "t_supplier": str(r['T_Supplier']) if pd.notna(r['T_Supplier']) else "",
+                "supplier": str(r['Supplier']) if pd.notna(r['Supplier']) else "",
+                "incident": str(r['Incident']) if pd.notna(r['Incident']) else "",
                 "criticidad": criticidad,
-                "value_range": r['Value'] if pd.notna(r['Value']) else "",
-                "comentario": r['Comentario'] if pd.notna(r['Comentario']) else "",
+                "value_range": str(r['Value']) if pd.notna(r['Value']) else "",
+                "comentario": str(r['Comentario']) if pd.notna(r['Comentario']) else "",
                 "mode": (match['Mode'] if pd.notna(match['Mode']) else None),
                 "instruction": (str(match['Instruction']) if pd.notna(match['Instruction']) else None),
                 "po": (str(match['PO']) if pd.notna(match['PO']) else None),
