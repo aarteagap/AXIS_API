@@ -388,6 +388,8 @@ def build_dashboard_data(xlsm_path):
             "line": r['Line'] if pd.notna(r['Line']) else "",
             "transport_operator": r['Transport Operator'] if pd.notna(r['Transport Operator']) else "",
             "market": r['Market'] if pd.notna(r['Market']) else "",
+            "instruction": str(r['Instruction']) if pd.notna(r['Instruction']) else "",
+            "po": str(r['PO']) if pd.notna(r['PO']) else "",
         })
 
     # ══════════════════════════════════════════════════════════════
