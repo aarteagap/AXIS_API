@@ -543,6 +543,7 @@ def build_dashboard_data(xlsm_path):
                 "po": (str(match['PO']) if pd.notna(match['PO']) else None),
                 "pack_plan": (int(match['Pack Plan']) if pd.notna(match['Pack Plan']) else None),
                 "packing": (match['Packing'] if pd.notna(match['Packing']) else None),
+                "shipper": (match['Shipper'] if pd.notna(match['Shipper']) else None),
                 "pod": (match['POD'] if pd.notna(match['POD']) else None),
                 "fcl": (round(float(match['FCL']), 2) if pd.notna(match['FCL']) else None),
                 "pallets": (round(float(match['Pallets']), 1) if pd.notna(match['Pallets']) else None),
