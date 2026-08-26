@@ -68,12 +68,37 @@ def _clean_str(v):
         return v if v and v.upper() != '#VALUE!' else None
     return v
 
+def _load_naviera_map(wb):
+    """La columna 'Línea Naviera' de CONSOLIDADO 2526 viene vacía en la
+    práctica (el Excel no la llena ahí) — la naviera real vive en la hoja
+    'MARÍTIMOS' (columna 'Línea'), cruzable por Instruction. Se usa como
+    respaldo cuando la columna directa no trae dato."""
+    if 'MARÍTIMOS' not in wb.sheetnames:
+        return {}
+    ws = wb['MARÍTIMOS']
+    rows = list(ws.iter_rows(min_row=1, values_only=True))
+    if not rows:
+        return {}
+    headers = rows[0]
+    idx = {h: i for i, h in enumerate(headers) if h}
+    i_instr, i_line = idx.get('Instruction'), idx.get('Línea')
+    if i_instr is None or i_line is None:
+        return {}
+    out = {}
+    for r in rows[1:]:
+        instr, line = r[i_instr], r[i_line]
+        if instr and line:
+            out[str(instr).strip()] = line
+    return out
+
+
 def load_rows(xlsx_path):
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb[SHEET_NAME]
     rows = list(ws.iter_rows(min_row=1, values_only=True))
     headers = rows[0]
     idx = {h: i for i, h in enumerate(headers) if h}
+    naviera_map = _load_naviera_map(wb)
 
     def val(r, name):
         i = idx.get(name)
@@ -87,6 +112,9 @@ def load_rows(xlsx_path):
 
         sede_raw = _clean_str(val(r, 'Sede'))
         sede = sede_raw.title() if sede_raw else sede_raw  # normaliza "CHAO" -> "Chao"
+
+        instruction = _clean_str(val(r, 'Instrucción'))
+        naviera = _clean_str(val(r, 'Línea Naviera')) or (naviera_map.get(instruction) if instruction else None)
 
         ingreso_packing = val(r, 'Ingreso Packing')
         salida_packing = val(r, 'Salida Packing')
@@ -102,17 +130,17 @@ def load_rows(xlsx_path):
 
         row = {
             'id': val(r, 'ID'),
-            'instruction': _clean_str(val(r, 'Instrucción')),
+            'instruction': instruction,
             'pp': int(pp),
             'sede': sede,
             'transportista': _clean_str(val(r, 'Transportista')),
-            'naviera': _clean_str(val(r, 'LINEA NAVIERA')),
+            'naviera': naviera,
             'almacenRetiro': _clean_str(val(r, 'Almacén retiro')),
             'almacenIngreso': _clean_str(val(r, 'Almacén de Ingreso')),
             'puertoRetiro': _clean_str(val(r, 'Puerto retiro')),
             'puertoIngreso': _clean_str(val(r, 'Puerto ingreso')),
             'fcl': val(r, 'FCL'),
-            'estatus': _clean_str(val(r, 'ESTATUS')),
+            'estatus': _clean_str(val(r, 'Estatus')),
 
             'gateOutCompliance': _clean_str(val(r, 'Gate-Out Appointment Compliance')),
             'packingCompliance': _clean_str(val(r, 'Packing Appointment Compliance')),
