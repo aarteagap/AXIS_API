@@ -191,8 +191,16 @@ def publish():
     ok_gh, info_gh = push_to_github(data, updater_name)
     ok_sb, info_sb = push_to_supabase(data, updater_name)
 
-    if not ok_gh and not ok_sb:
-        return jsonify({"error": f"Both destinations failed. GitHub: {info_gh} | Supabase: {info_sb}"}), 502
+    # El dashboard lee exclusivamente de Supabase (dashboard_data) — GitHub es
+    # solo un respaldo del Excel/JSON. Si Supabase falla, el publish debe
+    # reportarse como fallido aunque GitHub haya funcionado: de lo contrario
+    # el frontend muestra "✅ Publicado correctamente" sin que ningún dato
+    # nuevo llegue a la fuente que realmente se muestra en pantalla.
+    if not ok_sb:
+        return jsonify({
+            "error": f"Supabase update failed (fuente de datos del dashboard): {info_sb}",
+            "github": {"ok": ok_gh, "info": info_gh},
+        }), 502
 
     return jsonify({
         "status": "ok",
