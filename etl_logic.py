@@ -667,4 +667,8 @@ def build_dashboard_data(xlsm_path):
                LINE_BY_INSTRUCTION=LINE_BY_INSTRUCTION)
 
     xls.close()  # libera el workbook (y su memoria) apenas termina de usarse, sin esperar al garbage collector
+    import gc
+    gc.collect()  # en el primer request tras un arranque en frío (Render free tier) no hubo un ciclo de GC
+    # todavía, y la basura de imports + del parseo se acumula sin liberarse — esto libera memoria de
+    # inmediato en vez de confiar en que el recolector automático corra a tiempo antes del próximo request.
     return out

@@ -25,6 +25,34 @@ def cors_preflight():
 
 from etl_logic import build_dashboard_data
 
+
+def _warmup():
+    """Ejercita openpyxl + pandas una sola vez, al arrancar el worker (con RAM
+    de sobra, container recién iniciado), para pagar ahí el costo de "primer
+    uso" de estas librerías (inicialización de buffers internos, extensiones
+    C) en vez de encima del primer /publish real. En Render free tier
+    (512MB) ese costo extra era justo lo que hacía SIGKILL/OOM al worker en
+    el primer intento tras cada arranque en frío — los reintentos posteriores
+    ya no lo sufrían porque el proceso ya había "calentado" esos caminos.
+    Nunca debe impedir que el worker arranque: cualquier falla se ignora."""
+    try:
+        import io
+        import openpyxl
+        import pandas as pd
+        buf = io.BytesIO()
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(['a', 'b'])
+        ws.append([1, 2])
+        wb.save(buf)
+        buf.seek(0)
+        pd.read_excel(buf, engine='openpyxl')
+    except Exception:
+        pass
+
+
+_warmup()
+
 # Shared secret so random people on the internet can't hit this endpoint.
 # Set this as an environment variable in Render (see deployment instructions).
 API_KEY = os.environ.get("API_KEY", "change-me")
