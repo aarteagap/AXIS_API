@@ -24,6 +24,7 @@ def cors_preflight():
     return ("", 204)
 
 from etl_logic import build_dashboard_data
+from etl_logic_incidencias import build_incidencias_data
 
 
 def _warmup():
@@ -241,6 +242,44 @@ def publish():
         "github": {"ok": ok_gh, "info": info_gh},
         "supabase": {"ok": ok_sb, "info": info_sb},
         "updated_by": updater_name,
+        "rows": {k: len(v) if isinstance(v, list) else None for k, v in data.items()},
+    })
+
+
+@app.route("/publish-incidencias", methods=["OPTIONS"])
+def cors_preflight_incidencias():
+    return ("", 204)
+
+
+@app.route("/publish-incidencias", methods=["POST"])
+def publish_incidencias():
+    """Convierte la hoja 'Incidencias' del MISMO Excel de Horizon y publica
+    solo INCIDENCIAS/UNIVERSO_COMPLIANCE/HORIZON_RANGE a Supabase. Separado
+    de /publish para que subir el Horizon principal no tenga que además
+    parsear y cruzar Incidencias en la misma petición — este botón se usa
+    aparte, cuando hace falta actualizar esa vista en particular."""
+    if request.headers.get("X-API-Key") != API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
+
+    tmp_path = _load_excel_from_request()
+    if not tmp_path:
+        return jsonify({"error": "no file uploaded. Send multipart field 'file' or JSON {file_base64}"}), 400
+
+    try:
+        data = build_incidencias_data(tmp_path)
+    except Exception as e:
+        return jsonify({"error": f"conversion failed: {e}"}), 500
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    ok_sb, info_sb = push_to_supabase(data, "")
+    if not ok_sb:
+        return jsonify({"error": f"Supabase update failed: {info_sb}"}), 502
+
+    return jsonify({
+        "status": "ok",
+        "supabase": {"ok": ok_sb, "info": info_sb},
         "rows": {k: len(v) if isinstance(v, list) else None for k, v in data.items()},
     })
 
