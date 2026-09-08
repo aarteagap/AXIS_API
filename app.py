@@ -3,6 +3,7 @@ import tempfile
 import base64
 import json
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, request, jsonify
 
@@ -223,8 +224,16 @@ def publish():
     if isinstance(data.get("META"), dict):
         data["META"]["published_at_iso"] = datetime.now(timezone.utc).isoformat()
 
-    ok_gh, info_gh = push_to_github(data, updater_name)
-    ok_sb, info_sb = push_to_supabase(data, updater_name)
+    # En paralelo, no en secuencia: GitHub (GET+PUT, hasta ~50s de timeout
+    # propios) y Supabase (hasta 30s) sumados en serie fácilmente superan el
+    # timeout de 30s del propio worker de gunicorn — eso es lo que lo está
+    # matando con "WORKER TIMEOUT" en Render. En paralelo, el tiempo total es
+    # el del más lento de los dos, no la suma de ambos.
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fut_gh = ex.submit(push_to_github, data, updater_name)
+        fut_sb = ex.submit(push_to_supabase, data, updater_name)
+        ok_gh, info_gh = fut_gh.result()
+        ok_sb, info_sb = fut_sb.result()
 
     # El dashboard lee exclusivamente de Supabase (dashboard_data) — GitHub es
     # solo un respaldo del Excel/JSON. Si Supabase falla, el publish debe
