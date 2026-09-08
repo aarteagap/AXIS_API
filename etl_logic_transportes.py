@@ -66,7 +66,10 @@ def _clean_str(v):
     if isinstance(v, str):
         v = v.strip()
         return v if v and v.upper() != '#VALUE!' else None
-    return v
+    # Columnas de texto llenadas a mano a veces traen una fecha/número por error
+    # de tipeo — sin esto, ese valor llega como datetime/Timestamp, que
+    # requests.post(json=...) no sabe serializar y revienta la publicación.
+    return str(v)
 
 def load_rows(xlsx_path, line_by_instruction=None):
     """line_by_instruction: mapa opcional Instruction -> Line, tal como se
