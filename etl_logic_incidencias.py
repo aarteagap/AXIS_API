@@ -39,7 +39,7 @@ def build_incidencias_data(xlsm_path):
     df['Pack Plan'] = pd.to_numeric(df['Pack Plan'], errors='coerce')
     df = df[df['Pack Plan'].notna()].copy()
     df['Pack Plan'] = df['Pack Plan'].astype(int)
-    df_fc = df[df['Status'].isin(['Confirmado', 'Proyectado', 'Cancelado'])]
+    df_fc = df[df['Status'] == 'Confirmado']
 
     INCIDENCIAS = []
     UNIVERSO_COMPLIANCE = {"marítimo": {"instructions": 0, "fcl_total": 0.0, "pallets_total": 0.0},
@@ -197,10 +197,10 @@ def build_incidencias_data(xlsm_path):
     }
 
     # HORIZON_RANGE — todos los Pack Plan y meses (Dispatch Date) que existen
-    # en HORIZON_FORECAST (Confirmado/Proyectado/Cancelado), sin importar si
-    # tienen o no una incidencia asociada. Dibuja el eje X completo de la
-    # vista de Incidencias (todos los Pack Plan / todos los meses), no solo
-    # los que tuvieron un evento.
+    # en HORIZON_FORECAST con Status Confirmado, sin importar si tienen o no
+    # una incidencia asociada. Dibuja el eje X completo de la vista de
+    # Incidencias (todos los Pack Plan / todos los meses), no solo los que
+    # tuvieron un evento.
     all_pack_plans = sorted(int(x) for x in df_fc['Pack Plan'].dropna().unique())
     dispatch_dates_valid = df_fc['Dispatch Date'].dropna()
     all_months = sorted(set(pd.Timestamp(d).strftime('%Y-%m') for d in dispatch_dates_valid if pd.notna(d)))
