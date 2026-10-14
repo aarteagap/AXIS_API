@@ -78,6 +78,7 @@ def build_dashboard_data(xlsm_path):
             "shipper": str(r['Shipper']) if pd.notna(r['Shipper']) else "",
             "pod": str(r['POD']) if pd.notna(r['POD']) else "",
             "pol": str(r['POL']) if pd.notna(r['POL']) else "",
+            "log_op": str(r['Logistics Operator']) if pd.notna(r['Logistics Operator']) else "",
             "date": dstr(r['Loading Date']),
             "fcl": round(float(r['FCL']), 2),
             "pallets": round(float(r['Pallets']), 1) if pd.notna(r['Pallets']) else 0.0,
