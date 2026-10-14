@@ -390,6 +390,7 @@ def build_dashboard_data(xlsm_path):
             "is_exadd": bool(is_exadd), "is_airadd": bool(is_airadd),
             "line": str(r['Line']) if pd.notna(r['Line']) else "",
             "transport_operator": str(r['Transport Operator']) if pd.notna(r['Transport Operator']) else "",
+            "log_op": str(r['Logistics Operator']) if pd.notna(r['Logistics Operator']) else "",
             "market": str(r['Market']) if pd.notna(r['Market']) else "",
             "instruction": str(r['Instruction']) if pd.notna(r['Instruction']) else "",
             "po": str(r['PO']) if pd.notna(r['PO']) else "",
