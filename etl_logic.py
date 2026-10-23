@@ -325,8 +325,13 @@ def build_dashboard_data(xlsm_path):
 
     # ══════════════════════════════════════════════════════════════
     # TR_PROGRAM — "Programa de Técnicos Reefer" (PMI tab), Status=Confirmado
+    # Incluye T.R. Time/Assigned T.R. O Assigned Inspector — la tabla tiene su
+    # propia columna de inspector y se usa también para ver inspecciones ya
+    # asignadas aunque el Técnico Reefer todavía no se haya definido (si se
+    # exigiera T.R., ~mitad de los despachos con inspector asignado quedaban
+    # invisibles hasta que alguien les pusiera también un T.R.).
     # ══════════════════════════════════════════════════════════════
-    tr = conf[conf['T.R. Time'].notna() | conf['Assigned T.R.'].notna()].copy()
+    tr = conf[conf['T.R. Time'].notna() | conf['Assigned T.R.'].notna() | conf['Assigned Inspector'].notna()].copy()
     TR_PROGRAM = []
     for _, r in tr.iterrows():
         TR_PROGRAM.append({
