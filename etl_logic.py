@@ -29,7 +29,7 @@ def build_dashboard_data(xlsm_path):
     # tablas y gráficos sin tocar cada vista por separado).
     if 'POD' in df.columns:
         df['POD'] = df['POD'].apply(
-            lambda v: 'Philadelphia (incl. Gloucester)'
+            lambda v: 'Philadelphia (&GCS)'
             if isinstance(v, str) and v.strip().lower() in ('philadelphia', 'gloucester', 'glousceter', 'gloucester city')
             else v
         )

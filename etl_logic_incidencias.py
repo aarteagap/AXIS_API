@@ -45,7 +45,7 @@ def build_incidencias_data(xlsm_path):
     # copia de HORIZON_FORECAST, independiente del /publish principal.
     if 'POD' in df.columns:
         df['POD'] = df['POD'].apply(
-            lambda v: 'Philadelphia (incl. Gloucester)'
+            lambda v: 'Philadelphia (&GCS)'
             if isinstance(v, str) and v.strip().lower() in ('philadelphia', 'gloucester', 'glousceter', 'gloucester city')
             else v
         )
