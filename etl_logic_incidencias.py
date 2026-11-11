@@ -39,6 +39,17 @@ def build_incidencias_data(xlsm_path):
     df['Pack Plan'] = pd.to_numeric(df['Pack Plan'], errors='coerce')
     df = df[df['Pack Plan'].notna()].copy()
     df['Pack Plan'] = df['Pack Plan'].astype(int)
+
+    # Gloucester se cuenta junto con Philadelphia — ver misma nota en
+    # etl_logic.py. Se aplica también aquí porque este módulo lee su propia
+    # copia de HORIZON_FORECAST, independiente del /publish principal.
+    if 'POD' in df.columns:
+        df['POD'] = df['POD'].apply(
+            lambda v: 'Philadelphia (incl. Gloucester)'
+            if isinstance(v, str) and v.strip().lower() in ('philadelphia', 'gloucester', 'glousceter', 'gloucester city')
+            else v
+        )
+
     df_fc = df[df['Status'] == 'Confirmado']
 
     INCIDENCIAS = []

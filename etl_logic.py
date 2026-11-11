@@ -22,6 +22,18 @@ def build_dashboard_data(xlsm_path):
     df = df[df['Pack Plan'].notna()].copy()
     df['Pack Plan'] = df['Pack Plan'].astype(int)
 
+    # Gloucester se cuenta junto con Philadelphia (mismo complejo portuario, a
+    # pedido del negocio) — cualquier variante de escritura se reetiqueta al
+    # mismo valor para que ambos se agrupen como uno solo en todas las vistas,
+    # y el label deja explícito que incluye Gloucester (visible en filtros,
+    # tablas y gráficos sin tocar cada vista por separado).
+    if 'POD' in df.columns:
+        df['POD'] = df['POD'].apply(
+            lambda v: 'Philadelphia (incl. Gloucester)'
+            if isinstance(v, str) and v.strip().lower() in ('philadelphia', 'gloucester', 'glousceter', 'gloucester city')
+            else v
+        )
+
     def dstr(x):
         if pd.isna(x): return ""
         try:
