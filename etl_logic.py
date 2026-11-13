@@ -23,15 +23,22 @@ def build_dashboard_data(xlsm_path):
     df['Pack Plan'] = df['Pack Plan'].astype(int)
 
     # Gloucester se cuenta junto con Philadelphia (mismo complejo portuario, a
-    # pedido del negocio) — cualquier variante de escritura se reetiqueta al
-    # mismo valor para que ambos se agrupen como uno solo en todas las vistas,
-    # y el label deja explícito que incluye Gloucester (visible en filtros,
-    # tablas y gráficos sin tocar cada vista por separado).
+    # pedido del negocio) — y lo mismo para el par "(CN)" (destino distinto,
+    # misma regla). Cualquier variante de escritura se reetiqueta al mismo
+    # valor para que se agrupen como uno solo en todas las vistas, y el label
+    # deja explícito que incluye Gloucester (visible en filtros, tablas y
+    # gráficos sin tocar cada vista por separado).
+    _POD_MERGE_MAP = {
+        'philadelphia': 'Philadelphia (&GCS)',
+        'gloucester': 'Philadelphia (&GCS)',
+        'glousceter': 'Philadelphia (&GCS)',
+        'gloucester city': 'Philadelphia (&GCS)',
+        'philadelphia (cn)': 'Philadelphia (CN) (&GCS)',
+        'gloucester (cn)': 'Philadelphia (CN) (&GCS)',
+    }
     if 'POD' in df.columns:
         df['POD'] = df['POD'].apply(
-            lambda v: 'Philadelphia (&GCS)'
-            if isinstance(v, str) and v.strip().lower() in ('philadelphia', 'gloucester', 'glousceter', 'gloucester city')
-            else v
+            lambda v: _POD_MERGE_MAP.get(v.strip().lower(), v) if isinstance(v, str) else v
         )
 
     def dstr(x):

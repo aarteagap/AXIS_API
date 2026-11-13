@@ -40,14 +40,21 @@ def build_incidencias_data(xlsm_path):
     df = df[df['Pack Plan'].notna()].copy()
     df['Pack Plan'] = df['Pack Plan'].astype(int)
 
-    # Gloucester se cuenta junto con Philadelphia — ver misma nota en
-    # etl_logic.py. Se aplica también aquí porque este módulo lee su propia
-    # copia de HORIZON_FORECAST, independiente del /publish principal.
+    # Gloucester (y su par "(CN)") se cuenta junto con Philadelphia — ver
+    # misma nota en etl_logic.py. Se aplica también aquí porque este módulo
+    # lee su propia copia de HORIZON_FORECAST, independiente del /publish
+    # principal.
+    _POD_MERGE_MAP = {
+        'philadelphia': 'Philadelphia (&GCS)',
+        'gloucester': 'Philadelphia (&GCS)',
+        'glousceter': 'Philadelphia (&GCS)',
+        'gloucester city': 'Philadelphia (&GCS)',
+        'philadelphia (cn)': 'Philadelphia (CN) (&GCS)',
+        'gloucester (cn)': 'Philadelphia (CN) (&GCS)',
+    }
     if 'POD' in df.columns:
         df['POD'] = df['POD'].apply(
-            lambda v: 'Philadelphia (&GCS)'
-            if isinstance(v, str) and v.strip().lower() in ('philadelphia', 'gloucester', 'glousceter', 'gloucester city')
-            else v
+            lambda v: _POD_MERGE_MAP.get(v.strip().lower(), v) if isinstance(v, str) else v
         )
 
     df_fc = df[df['Status'] == 'Confirmado']
